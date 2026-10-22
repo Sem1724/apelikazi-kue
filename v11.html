@@ -266,7 +266,7 @@
   <section id="hal-pengaturan" class="halaman" hidden>
 
     <!-- PETUNJUK -->
-    <p>Ubah tulisan dan warna laporan di sini. Perubahan tersimpan otomatis dan ikut tersimpan di Google Sheet, jadi sama di semua perangkat.</p>
+    <p>Ubah tulisan, warna, rata, dan ketebalan laporan di sini. Semua kelompok terbuka; ketuk judulnya kalau ingin menutup. Perubahan tersimpan otomatis dan ikut tersimpan di Google Sheet, jadi sama di semua perangkat.</p>
 
     <!-- FORM PENGATURAN (dibuat JavaScript, CSS-nya di bawah ini) -->
     <style>
@@ -274,6 +274,8 @@
       .grup-set label { display:grid; grid-template-columns: 1fr 1fr; gap:6px; align-items:center; margin:6px 0; font-size:14px; }
       .grup-set input[type=color] { width:60px; height:34px; padding:0; border:1px solid var(--garis); border-radius:6px; }
       .grup-set input[type=checkbox] { width:22px; height:22px; }
+      .grup-set select { padding:7px; border:1px solid var(--garis); border-radius:6px; font:inherit; }
+      .grup-set summary { cursor:pointer; padding:2px 0; }
     </style>
     <div id="form-pengaturan"></div>
 
@@ -516,51 +518,129 @@
       simpan(); renderInput();
     });
 
-    // ===== PENGATURAN LAPORAN (tulisan dan warna PDF / WhatsApp) =====
+    // ===== PENGATURAN LAPORAN (tulisan, warna, rata, ketebalan PDF / tulisan WhatsApp) =====
     // Dipakai oleh: halaman Pengaturan, teks laporan WhatsApp, dan PDF. Disimpan di db.pengaturan (ikut tersimpan ke Google Sheet).
+    // Tulisan dan pengaturan umum:
     const DEF_PENGATURAN = {
       judul: 'Dari YULI',
       pdfKue: 'Kue', pdfJumlah: 'Jumlah', pdfSisa: 'Sisa', pdfLaku: 'Laku', pdfHarga: 'Harga', pdfUang: 'Uang',
       pdfBrt: 'Brt', pdfTotal: 'Total', pdfDiterima: 'Diterima',
       waNitip: 'nitip', waSisa: 'sisa', waLaku: 'laku', waTotal: 'Total', waHarus: 'Harus disetor', waDiterima: 'Uang diterima',
       kurang: 'Kurang', lebih: 'Lebih', tbh: 'Tbh', ptg: 'Ptg',
-      warnaBrt: '#1d4ed8', warnaTotal: '#1d4ed8', warnaKurang: '#15803d', warnaLebih: '#b91c1c',
-      pdfHargaOn: true, pdfFont: 8
+      pdfFamily: 'helvetica', pdfLebar: 110, pdfTema: 'grid', pdfWarnaGaris: '#0a0a0a', pdfTebalGaris: 0.1, pdfJarak: 5, pdfPadding: 1.2, pdfCatatan: ''
     };
     function pengaturan() { return Object.assign({}, DEF_PENGATURAN, db.pengaturan || {}); }
     function hexKeRgb(h) { const n = parseInt(String(h).slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+    const batas = (v, min, max, awal) => (v === '' || v == null || isNaN(Number(v))) ? awal : Math.min(max, Math.max(min, Number(v)));
 
-    // Daftar isian yang tampil di halaman Pengaturan: [kunci, nama isian]
+    // Gaya tiap bagian PDF. T(warna, perubahan) membuat gaya bawaan; yang tidak dipakai suatu bagian diabaikan.
+    // Isi: warna tulisan, latar, tebal, miring, rata (kiri/tengah/kanan), rataNilai (rata angka di baris ringkasan), ukuran huruf, tampil, besar, lebar kolom
+    const T = (warna, o) => Object.assign({ warna, latar: '#ffffff', tebal: false, miring: false, rata: 'kiri', rataNilai: 'kanan', ukuran: 8, tampil: true, besar: false, lebar: 0 }, o);
+    const GAYA_DEF = {
+      judul: T('#000000', { ukuran: 13 }),
+      tanggal: T('#000000', { ukuran: 9 }),
+      nama: T('#ffffff', { latar: '#0f766e', tebal: true }),
+      kepala: T('#1e1e1e', { latar: '#e6f2f0', tebal: true }),
+      kolKue: T('#141414'), kolJumlah: T('#141414', { rata: 'kanan' }), kolSisa: T('#141414', { rata: 'kanan' }),
+      kolLaku: T('#141414', { rata: 'kanan' }), kolHarga: T('#141414', { rata: 'kanan' }), kolUang: T('#141414', { rata: 'kanan' }),
+      rBrt: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      rSaldo: T('#141414', { rata: 'kanan' }),
+      rTotal: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      rDiterima: T('#141414', { rata: 'kanan' }),
+      rKurang: T('#15803d', { tebal: true, rata: 'kanan' }),
+      rLebih: T('#b91c1c', { tebal: true, rata: 'kanan' }),
+      catatan: T('#000000', { miring: true })
+    };
+    const LAMA = { rBrt: 'warnaBrt', rTotal: 'warnaTotal', rKurang: 'warnaKurang', rLebih: 'warnaLebih' }; // nama pengaturan versi sebelumnya
+    function gaya(k) {
+      const P = db.pengaturan || {}, d = Object.assign({}, GAYA_DEF[k]);
+      if (LAMA[k] && P[LAMA[k]]) d.warna = P[LAMA[k]];
+      if (k === 'kolHarga' && P.pdfHargaOn === false) d.tampil = false;
+      return Object.assign(d, (P.gaya || {})[k]);
+    }
+    const RATA = { kiri: 'left', tengah: 'center', kanan: 'right' };
+    // Ubah gaya menjadi gaya sel tabel PDF
+    function gayaSel(g) {
+      return { textColor: hexKeRgb(g.warna), fillColor: hexKeRgb(g.latar), halign: RATA[g.rata] || 'left', fontSize: batas(g.ukuran, 5, 20, 8),
+               fontStyle: g.tebal ? (g.miring ? 'bolditalic' : 'bold') : (g.miring ? 'italic' : 'normal') };
+    }
+
+    // Daftar bagian PDF di halaman Pengaturan: [kunci, nama, pilihan yang tersedia]
+    const SEMUA = ['warna', 'latar', 'tebal', 'miring', 'rata', 'rataNilai', 'ukuran'];
+    const ELEMEN = [
+      ['judul', 'Judul laporan', ['warna', 'tebal', 'miring', 'rata', 'ukuran']],
+      ['tanggal', 'Tanggal di bawah judul', ['tampil', 'warna', 'tebal', 'miring', 'rata', 'ukuran']],
+      ['nama', 'Baris nama penitip', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'besar']],
+      ['kepala', 'Baris judul kolom (rata ikut kolom)', ['warna', 'latar', 'tebal', 'miring', 'ukuran']],
+      ['kolKue', 'Kolom kue', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolJumlah', 'Kolom jumlah titipan', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolSisa', 'Kolom sisa', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolLaku', 'Kolom laku', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolHarga', 'Kolom harga', ['tampil', 'warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolUang', 'Kolom uang', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['rBrt', 'Baris jumlah uang kue', ['tampil'].concat(SEMUA)],
+      ['rSaldo', 'Baris saldo hari lalu (Tbh / Ptg)', ['tampil'].concat(SEMUA)],
+      ['rTotal', 'Baris Total setelah saldo', ['tampil'].concat(SEMUA)],
+      ['rDiterima', 'Baris uang diterima', ['tampil'].concat(SEMUA)],
+      ['rKurang', 'Baris Kurang', ['tampil'].concat(SEMUA)],
+      ['rLebih', 'Baris Lebih', ['tampil'].concat(SEMUA)],
+      ['catatan', 'Catatan di bagian bawah', ['warna', 'tebal', 'miring', 'rata', 'ukuran']]
+    ];
+    const NAMA_PILIHAN = { tampil: 'Tampilkan', warna: 'Warna tulisan', latar: 'Warna latar', tebal: 'Tebal', miring: 'Miring', rata: 'Rata tulisan', rataNilai: 'Rata angka', ukuran: 'Ukuran huruf (5 sampai 20)', besar: 'Semua HURUF BESAR', lebar: 'Lebar kolom (mm, 0 = otomatis)' };
+    const PILIHAN_RATA = [['kiri', 'Rata kiri'], ['tengah', 'Rata tengah'], ['kanan', 'Rata kanan']];
+
+    // Daftar isian tulisan: [kunci, nama isian]
     const KELOMPOK = [
       { judul: 'Judul laporan (PDF dan WhatsApp)', isi: [['judul', 'Judul']] },
       { judul: 'Judul kolom tabel PDF', isi: [['pdfKue', 'Kolom kue'], ['pdfJumlah', 'Kolom jumlah titipan'], ['pdfSisa', 'Kolom sisa'], ['pdfLaku', 'Kolom laku'], ['pdfHarga', 'Kolom harga'], ['pdfUang', 'Kolom uang']] },
-      { judul: 'Baris ringkasan PDF', isi: [['pdfBrt', 'Jumlah uang kue'], ['pdfTotal', 'Total setelah saldo'], ['pdfDiterima', 'Uang diterima']] },
+      { judul: 'Tulisan baris ringkasan PDF', isi: [['pdfBrt', 'Jumlah uang kue'], ['pdfTotal', 'Total setelah saldo'], ['pdfDiterima', 'Uang diterima'], ['pdfCatatan', 'Catatan di bagian bawah']] },
       { judul: 'Tulisan laporan WhatsApp', isi: [['waNitip', 'Kata "nitip"'], ['waSisa', 'Kata "sisa"'], ['waLaku', 'Kata "laku"'], ['waTotal', 'Jumlah uang kue'], ['waHarus', 'Harus disetor'], ['waDiterima', 'Uang diterima']] },
       { judul: 'Tulisan bersama (PDF dan WhatsApp)', isi: [['kurang', 'Kurang'], ['lebih', 'Lebih'], ['tbh', 'Kekurangan hari lalu'], ['ptg', 'Potongan hari lalu']] }
     ];
-    const WARNA = [['warnaBrt', 'Baris jumlah uang kue'], ['warnaTotal', 'Baris Total'], ['warnaKurang', 'Baris Kurang'], ['warnaLebih', 'Baris Lebih']];
 
-    // Gambar isian di halaman Pengaturan. Mengisi elemen: #form-pengaturan
+    // Satu isian gaya (kotak centang, warna, pilihan rata, atau angka)
+    function kontrol(el, prop, nilai) {
+      const a = `data-el="${el}" data-prop="${prop}"`;
+      let isi;
+      if (['tampil', 'tebal', 'miring', 'besar'].includes(prop)) isi = `<input type="checkbox" ${a} ${nilai ? 'checked' : ''}>`;
+      else if (prop === 'warna' || prop === 'latar') isi = `<input type="color" ${a} value="${esc(nilai)}">`;
+      else if (prop === 'rata' || prop === 'rataNilai') isi = `<select ${a}>${PILIHAN_RATA.map(([v, n]) => `<option value="${v}" ${v === nilai ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+      else isi = `<input class="kolom" type="number" step="any" ${a} value="${nilai}">`;
+      return `<label>${NAMA_PILIHAN[prop]}${isi}</label>`;
+    }
+    // Gambar semua isian di halaman Pengaturan. Mengisi elemen: #form-pengaturan
     function renderPengaturan() {
       const L = pengaturan();
       const teks = (k, nama) => `<label>${nama}<input class="kolom" data-key="${k}" value="${esc(L[k])}"></label>`;
-      const warna = (k, nama) => `<label>${nama}<input type="color" data-key="${k}" value="${esc(L[k])}"></label>`;
+      const angka = (k, nama, step) => `<label>${nama}<input class="kolom" type="number" step="${step}" data-key="${k}" value="${L[k]}"></label>`;
+      const pilih = (k, nama, daftar) => `<label>${nama}<select data-key="${k}">${daftar.map(([v, n]) => `<option value="${v}" ${v === L[k] ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
       $('form-pengaturan').innerHTML =
-        KELOMPOK.map(g => `<!-- KELOMPOK: ${g.judul} --><div class="grup-set"><b>${g.judul}</b>${g.isi.map(([k, n]) => teks(k, n)).join('')}</div>`).join('') +
-        `<!-- KELOMPOK: Warna di PDF --><div class="grup-set"><b>Warna di PDF (tulisan dan angkanya)</b>${WARNA.map(([k, n]) => warna(k, n)).join('')}</div>` +
-        `<!-- KELOMPOK: Tampilan PDF --><div class="grup-set"><b>Tampilan PDF</b>
-          <label>Tampilkan kolom harga <input type="checkbox" data-key="pdfHargaOn" ${L.pdfHargaOn ? 'checked' : ''}></label>
-          <label>Ukuran huruf tabel (6 sampai 12) <input class="kolom" type="number" min="6" max="12" data-key="pdfFont" value="${L.pdfFont}"></label>
-        </div>`;
+        KELOMPOK.map(g => `<!-- KELOMPOK TULISAN: ${g.judul} --><details class="grup-set" open><summary><b>${g.judul}</b></summary>${g.isi.map(([k, n]) => teks(k, n)).join('')}</details>`).join('') +
+        `<!-- KELOMPOK: Tampilan umum PDF --><details class="grup-set" open><summary><b>Tampilan umum PDF</b></summary>
+          ${pilih('pdfFamily', 'Jenis huruf', [['helvetica', 'Helvetica (polos)'], ['times', 'Times (berkaki)'], ['courier', 'Courier (mesin tik)']])}
+          ${angka('pdfLebar', 'Lebar halaman (mm, 60 sampai 210)', 1)}
+          ${pilih('pdfTema', 'Garis tabel', [['grid', 'Ada garis'], ['plain', 'Tanpa garis']])}
+          <label>Warna garis<input type="color" data-key="pdfWarnaGaris" value="${esc(L.pdfWarnaGaris)}"></label>
+          ${angka('pdfTebalGaris', 'Tebal garis (mm)', 0.05)}
+          ${angka('pdfJarak', 'Jarak antar penitip (mm)', 1)}
+          ${angka('pdfPadding', 'Jarak tulisan ke tepi sel (mm)', 0.1)}
+        </details>` +
+        ELEMEN.map(([k, nama, daftar]) => { const g = gaya(k); return `<!-- KELOMPOK GAYA: ${nama} --><details class="grup-set" open><summary><b>Gaya: ${nama}</b></summary>${daftar.map(p => kontrol(k, p, g[p])).join('')}</details>`; }).join('');
     }
     // Simpan otomatis setiap kali isian diubah
-    $('form-pengaturan').addEventListener('input', ev => {
-      const t = ev.target, k = t.dataset.key;
-      if (!k) return;
+    function simpanIsian(ev) {
+      const t = ev.target;
+      if (!t.dataset || (!t.dataset.el && !t.dataset.key)) return;
       db.pengaturan = db.pengaturan || {};
-      db.pengaturan[k] = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Math.min(12, Math.max(6, Number(t.value) || 8)) : t.value;
+      const nilai = t.type === 'checkbox' ? t.checked : t.type === 'number' ? (t.value === '' ? '' : Number(t.value)) : t.value;
+      if (t.dataset.el) {
+        const G = db.pengaturan.gaya = db.pengaturan.gaya || {};
+        (G[t.dataset.el] = G[t.dataset.el] || {})[t.dataset.prop] = nilai;
+      } else db.pengaturan[t.dataset.key] = nilai;
       simpan();
-    });
+    }
+    $('form-pengaturan').addEventListener('input', simpanIsian);
+    $('form-pengaturan').addEventListener('change', simpanIsian);
     // TOMBOL: Kembalikan ke Awal (hanya pengaturan laporan; data lain tidak tersentuh)
     $('btn-reset-pengaturan').addEventListener('click', ev => dua(ev.target, () => {
       db.pengaturan = {}; simpan(); renderPengaturan();
@@ -612,54 +692,65 @@
 
     // ===== HALAMAN LAPORAN: buat PDF =====
     // Dipakai oleh: tombol Unduh PDF (tab Laporan) dan tombol Pratinjau PDF (tab Pengaturan).
-    // Tulisan, warna, dan kolom diambil dari halaman Pengaturan. Keuntungan TIDAK dimasukkan.
+    // Tulisan, warna, rata, ketebalan, dan kolom diambil dari halaman Pengaturan. Keuntungan TIDAK dimasukkan.
     function buatDocPDF() {
-      const L = pengaturan(), LEBAR = 110;
-      const adaH = L.pdfHargaOn !== false, n = adaH ? 6 : 5; // n = jumlah kolom tabel
-      const ukuran = Number(L.pdfFont) || 8;
-      const warna = { brt: hexKeRgb(L.warnaBrt), total: hexKeRgb(L.warnaTotal), kurang: hexKeRgb(L.warnaKurang), lebih: hexKeRgb(L.warnaLebih) };
+      const L = pengaturan();
+      const LEBAR = batas(L.pdfLebar, 60, 210, 110), jarak = batas(L.pdfJarak, 0, 20, 5);
+      // kolom yang tampil: [kunci gaya, judul kolom]
+      const kol = [['kolKue', L.pdfKue], ['kolJumlah', L.pdfJumlah], ['kolSisa', L.pdfSisa], ['kolLaku', L.pdfLaku], ['kolHarga', L.pdfHarga], ['kolUang', L.pdfUang]]
+        .filter(([k]) => gaya(k).tampil !== false);
+      const n = kol.length, gk = kol.map(([k]) => gaya(k));
       // fungsi menggambar seluruh isi laporan, mengembalikan posisi paling bawah
       const gambar = doc => {
-        doc.setFontSize(13); doc.text(L.judul, 8, 12);
-        doc.setFontSize(9); doc.text(namaTanggal(tglAktif), 8, 17);
-        let y = 22;
+        let y = 6;
+        // teks bebas di luar tabel (judul, tanggal, catatan)
+        const tulis = (isi, g) => {
+          if (!isi) return;
+          const ukuran = batas(g.ukuran, 5, 20, 9), x = g.rata === 'tengah' ? LEBAR / 2 : g.rata === 'kanan' ? LEBAR - 8 : 8;
+          const w = hexKeRgb(g.warna);
+          doc.setFont(L.pdfFamily, gayaSel(g).fontStyle); doc.setFontSize(ukuran); doc.setTextColor(w[0], w[1], w[2]);
+          y += ukuran * 0.36;
+          doc.text(String(isi), x, y, { align: RATA[g.rata] || 'left' });
+          y += ukuran * 0.1 + 1.5;
+        };
+        tulis(L.judul, gaya('judul'));
+        if (gaya('tanggal').tampil !== false) tulis(namaTanggal(tglAktif), gaya('tanggal'));
+        y += 2;
         db.penitip.forEach(p => {
           const r = ringkas(tglAktif, p);
           if (!r.hadir || !r.baris.length) return;
-          // isi tabel: satu baris per kue
+          // isi tabel: satu baris per kue, tiap sel memakai gaya kolomnya
           const body = r.baris.map(b => {
-            const baris = [b.nama, b.nitip, b.siap ? b.sisa : '?', b.laku];
-            if (adaH) baris.push(rp(b.setor));
-            baris.push(rp(b.uang));
-            return baris;
+            const nilai = { kolKue: b.nama, kolJumlah: b.nitip, kolSisa: b.siap ? b.sisa : '?', kolLaku: b.laku, kolHarga: rp(b.setor), kolUang: rp(b.uang) };
+            return kol.map(([k], i) => ({ content: String(nilai[k]), styles: gayaSel(gk[i]) }));
           });
-          // baris ringkasan di bawah tabel: tulisan dan angkanya memakai warna yang sama
-          const tambah = (label, nilai, tebal, wr) => {
-            const gaya = { halign: 'right', fontStyle: tebal ? 'bold' : 'normal' };
-            if (wr) gaya.textColor = wr;
-            body.push([{ content: label, colSpan: n - 1, styles: gaya }, { content: nilai, styles: gaya }]);
+          // baris ringkasan di bawah tabel: tulisan di kiri (digabung), angka di kanan
+          const baris = (kunci, label, nilai) => {
+            const g = gaya(kunci);
+            if (g.tampil === false) return;
+            const sl = gayaSel(g), sn = Object.assign({}, sl, { halign: RATA[g.rataNilai] || 'right' });
+            body.push([{ content: label, colSpan: n - 1, styles: sl }, { content: nilai, styles: sn }]);
           };
-          tambah(L.pdfBrt, rp(r.total), true, warna.brt);
-          if (r.sebelum !== 0) { tambah(labelSebelum(r.sebelum, r.tglSebelum), rp(Math.abs(r.sebelum))); tambah(L.pdfTotal, rp(r.harus), true, warna.total); }
+          baris('rBrt', L.pdfBrt, rp(r.total));
+          if (r.sebelum !== 0) { baris('rSaldo', labelSebelum(r.sebelum, r.tglSebelum), rp(Math.abs(r.sebelum))); baris('rTotal', L.pdfTotal, rp(r.harus)); }
           if (r.fisik !== null) {
-            tambah(L.pdfDiterima, rp(r.fisik));
-            if (r.saldo !== 0) tambah(r.saldo < 0 ? L.kurang : L.lebih, rp(Math.abs(r.saldo)), true, r.saldo < 0 ? warna.kurang : warna.lebih);
+            baris('rDiterima', L.pdfDiterima, rp(r.fisik));
+            if (r.saldo !== 0) baris(r.saldo < 0 ? 'rKurang' : 'rLebih', r.saldo < 0 ? L.kurang : L.lebih, rp(Math.abs(r.saldo)));
           }
-          // judul kolom
-          const kepala = [L.pdfKue, L.pdfJumlah, L.pdfSisa, L.pdfLaku];
-          if (adaH) kepala.push(L.pdfHarga);
-          kepala.push(L.pdfUang);
-          const kanan = {};
-          for (let i = 1; i < n; i++) kanan[i] = { halign: 'right' };
+          // kepala tabel: baris nama penitip + baris judul kolom (rata ikut kolom masing-masing)
+          const gh = gaya('kepala'), gn = gaya('nama');
+          const kepala = kol.map(([k, judul], i) => ({ content: String(judul), styles: Object.assign(gayaSel(gh), { halign: RATA[gk[i].rata] || 'left' }) }));
+          const lebarKol = {};
+          gk.forEach((g, i) => { const w = batas(g.lebar, 0, 150, 0); if (w > 0) lebarKol[i] = { cellWidth: w }; });
           doc.autoTable({
-            startY: y, margin: { left: 8, right: 8, bottom: 0 }, theme: 'grid', styles: { fontSize: ukuran, cellPadding: 1.2 },
-            // kepala tabel: nama penitip + judul kolom (ikut berulang jika pindah halaman)
-            head: [[{ content: p.nama, colSpan: n, styles: { fillColor: [15, 118, 110], textColor: 255 } }], kepala],
-            headStyles: { fillColor: [230, 242, 240], textColor: 30 },
-            columnStyles: kanan, body
+            startY: y, margin: { left: 8, right: 8, bottom: 0 }, theme: 'grid', columnStyles: lebarKol,
+            styles: { font: L.pdfFamily, cellPadding: batas(L.pdfPadding, 0, 5, 1.2), lineColor: hexKeRgb(L.pdfWarnaGaris), lineWidth: L.pdfTema === 'plain' ? 0 : batas(L.pdfTebalGaris, 0.05, 1, 0.1) },
+            head: [[{ content: gn.besar ? p.nama.toUpperCase() : p.nama, colSpan: n, styles: gayaSel(gn) }], kepala],
+            body
           });
-          y = doc.lastAutoTable.finalY + 5;
+          y = doc.lastAutoTable.finalY + jarak;
         });
+        if (L.pdfCatatan) tulis(L.pdfCatatan, gaya('catatan'));
         return y;
       };
       // 1) ukur tinggi isi pada halaman yang sangat tinggi, 2) buat PDF final dengan tinggi sesuai isi (satu halaman utuh, tidak terpotong)
