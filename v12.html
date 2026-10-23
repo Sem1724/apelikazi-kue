@@ -266,7 +266,7 @@
   <section id="hal-pengaturan" class="halaman" hidden>
 
     <!-- PETUNJUK -->
-    <p>Ubah tulisan, warna, rata, dan ketebalan laporan di sini. Ketuk judul kelompok untuk membuka pilihannya. Perubahan tersimpan otomatis dan ikut tersimpan di Google Sheet, jadi sama di semua perangkat.</p>
+    <p>Ubah tulisan, warna, rata, dan ketebalan laporan di sini. Semua kelompok terbuka; ketuk judulnya kalau ingin menutup. Perubahan tersimpan otomatis dan ikut tersimpan di Google Sheet, jadi sama di semua perangkat.</p>
 
     <!-- FORM PENGATURAN (dibuat JavaScript, CSS-nya di bawah ini) -->
     <style>
@@ -615,8 +615,8 @@
       const angka = (k, nama, step) => `<label>${nama}<input class="kolom" type="number" step="${step}" data-key="${k}" value="${L[k]}"></label>`;
       const pilih = (k, nama, daftar) => `<label>${nama}<select data-key="${k}">${daftar.map(([v, n]) => `<option value="${v}" ${v === L[k] ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
       $('form-pengaturan').innerHTML =
-        KELOMPOK.map(g => `<!-- KELOMPOK TULISAN: ${g.judul} --><details class="grup-set"><summary><b>${g.judul}</b></summary>${g.isi.map(([k, n]) => teks(k, n)).join('')}</details>`).join('') +
-        `<!-- KELOMPOK: Tampilan umum PDF --><details class="grup-set"><summary><b>Tampilan umum PDF</b></summary>
+        KELOMPOK.map(g => `<!-- KELOMPOK TULISAN: ${g.judul} --><details class="grup-set" open><summary><b>${g.judul}</b></summary>${g.isi.map(([k, n]) => teks(k, n)).join('')}</details>`).join('') +
+        `<!-- KELOMPOK: Tampilan umum PDF --><details class="grup-set" open><summary><b>Tampilan umum PDF</b></summary>
           ${pilih('pdfFamily', 'Jenis huruf', [['helvetica', 'Helvetica (polos)'], ['times', 'Times (berkaki)'], ['courier', 'Courier (mesin tik)']])}
           ${angka('pdfLebar', 'Lebar halaman (mm, 60 sampai 210)', 1)}
           ${pilih('pdfTema', 'Garis tabel', [['grid', 'Ada garis'], ['plain', 'Tanpa garis']])}
@@ -625,7 +625,7 @@
           ${angka('pdfJarak', 'Jarak antar penitip (mm)', 1)}
           ${angka('pdfPadding', 'Jarak tulisan ke tepi sel (mm)', 0.1)}
         </details>` +
-        ELEMEN.map(([k, nama, daftar]) => { const g = gaya(k); return `<!-- KELOMPOK GAYA: ${nama} --><details class="grup-set"><summary><b>Gaya: ${nama}</b></summary>${daftar.map(p => kontrol(k, p, g[p])).join('')}</details>`; }).join('');
+        ELEMEN.map(([k, nama, daftar]) => { const g = gaya(k); return `<!-- KELOMPOK GAYA: ${nama} --><details class="grup-set" open><summary><b>Gaya: ${nama}</b></summary>${daftar.map(p => kontrol(k, p, g[p])).join('')}</details>`; }).join('');
     }
     // Simpan otomatis setiap kali isian diubah
     function simpanIsian(ev) {
