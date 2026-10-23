@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catatan Titipan Kue</title>
+
+  <!-- ===== LIBRARY PEMBUAT PDF (butuh internet, hanya dipakai tombol Unduh PDF) ===== -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- ===== CSS GLOBAL (hanya warna, font, dan reset dasar) ===== -->
+  <style>
+    :root { --utama:#0f766e; --latar:#f3f5f4; --kartu:#ffffff; --teks:#1f2937; --garis:#d5dbd9; --merah:#b91c1c; --hijau:#15803d; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, Arial, sans-serif; background: var(--latar); color: var(--teks); }
+    input, button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .minus { color: var(--merah); }
+    .plus  { color: var(--hijau); }
+  </style>
+</head>
+<body>
+
+  <!-- ===== HEADER: judul + pemilih tanggal ===== -->
+  <style>
+    .header { background: var(--utama); color:#fff; padding:12px 16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+    .header h1 { font-size:18px; margin:0; }
+    .header input { padding:6px 8px; border:0; border-radius:6px; }
+  </style>
+  <header class="header">
+    <!-- Judul aplikasi -->
+    <h1>Catatan Titipan Kue</h1>
+    <!-- Pemilih tanggal (dipakai oleh halaman Input dan Laporan) -->
+    <label>Tanggal: <input type="date" id="tanggal"></label>
+    <!-- Status penyimpanan Google Sheet (diisi JavaScript) -->
+    <small id="status-sheet" style="width:100%"></small>
+  </header>
+
+  <!-- ===== MENU TAB: pindah antar halaman ===== -->
+  <style>
+    .menu { display:flex; overflow-x:auto; background:#fff; border-bottom:1px solid var(--garis); }
+    .menu button { flex:1; white-space:nowrap; padding:11px 12px; border:0; background:none; border-bottom:3px solid transparent; color: var(--teks); }
+    .menu button.aktif { border-bottom-color: var(--utama); color: var(--utama); font-weight:700; }
+  </style>
+  <nav class="menu" id="menu">
+    <!-- TAB: Input Harian -->
+    <button data-hal="input" class="aktif">Input Harian</button>
+    <!-- TAB: Laporan -->
+    <button data-hal="laporan">Laporan</button>
+    <!-- TAB: Keuntungan -->
+    <button data-hal="untung">Keuntungan</button>
+    <!-- TAB: Gantungan (saldo kurang / lebih yang belum selesai) -->
+    <button data-hal="gantungan">Gantungan</button>
+    <!-- TAB: Rekap Periode (penitip yang dibayar per periode) -->
+    <button data-hal="rekap">Rekap</button>
+    <!-- TAB: Data Master -->
+    <button data-hal="master">Data Master</button>
+    <!-- TAB: Cadangan -->
+    <button data-hal="cadangan">Cadangan</button>
+  </nav>
+
+  <!-- ===== STYLE UMUM SEMUA HALAMAN (lebar dan jarak) ===== -->
+  <style>
+    .halaman { max-width:760px; margin:0 auto; padding:12px; }
+    .halaman[hidden] { display:none; }
+    .tombol { background: var(--utama); color:#fff; border:0; border-radius:8px; padding:9px 14px; margin:2px 4px 2px 0; }
+    .tombol.abu { background:#6b7280; }
+    .tombol.merah { background: var(--merah); }
+    .kolom { padding:7px; border:1px solid var(--garis); border-radius:6px; }
+  </style>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 1: INPUT HARIAN                               -->
+  <!-- ===================================================== -->
+  <section id="hal-input" class="halaman">
+
+    <!-- BAR RINGKAS HARI INI: jumlah penitip hadir dan total uang -->
+    <style>
+      .ringkas-hari { background:#e6f2f0; border:1px solid var(--utama); border-radius:10px; padding:10px 12px; margin-bottom:10px; display:flex; justify-content:space-between; font-weight:700; }
+    </style>
+    <div class="ringkas-hari">
+      <!-- Teks: Hadir n penitip (diisi JavaScript) -->
+      <span id="ringkas-hadir"></span>
+      <!-- Teks: Total uang semua penitip (diisi JavaScript) -->
+      <span id="ringkas-total"></span>
+    </div>
+
+    <!-- DAFTAR KARTU PENITIP (kartu dibuat oleh JavaScript, CSS-nya ada tepat di bawah) -->
+    <style>
+      /* Kartu satu penitip */
+      .kartu { background: var(--kartu); border:1px solid var(--garis); border-radius:10px; margin-bottom:10px; overflow:hidden; }
+      /* Kepala kartu: centang hadir + nama penitip */
+      .kartu-kepala { display:flex; gap:10px; align-items:center; padding:11px 12px; font-weight:700; cursor:pointer; }
+      .kartu-kepala input { width:22px; height:22px; }
+      /* Isi kartu: tabel kue. Warna, rata, tebal, ukuran huruf, dan garis diambil dari pengaturan PDF (dibuat JavaScript) */
+      .kartu-isi { padding:0 0 8px; overflow-x:auto; }
+      .tabel-kue td input { width:100%; min-width:44px; max-width:110px; padding:5px; font:inherit; color:inherit; text-align:inherit; background:transparent; border:1px solid rgba(0,0,0,.3); border-radius:6px; }
+    </style>
+    <div id="daftar-input"></div>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 2: LAPORAN (ringkasan untuk grup WhatsApp)    -->
+  <!-- ===================================================== -->
+  <section id="hal-laporan" class="halaman" hidden>
+
+    <!-- PERINGATAN: muncul jika ada kue yang sisanya belum diisi -->
+    <style>
+      .peringatan { background:#fef3c7; border:1px solid #d97706; border-radius:8px; padding:8px 10px; margin-bottom:10px; font-size:14px; }
+      .peringatan:empty { display:none; }
+    </style>
+    <div class="peringatan" id="peringatan"></div>
+
+    <!-- KOTAK TEKS LAPORAN: isi pesan yang akan dikirim ke grup -->
+    <style>
+      .teks-laporan { width:100%; height:360px; padding:10px; border:1px solid var(--garis); border-radius:8px; font-family: ui-monospace, Consolas, monospace; font-size:13px; }
+    </style>
+    <textarea class="teks-laporan" id="teks-laporan" readonly></textarea>
+
+    <!-- TOMBOL: Salin Laporan -->
+    <button class="tombol" id="btn-salin">Salin Laporan</button>
+    <!-- TOMBOL: Bagikan ke WhatsApp -->
+    <button class="tombol" id="btn-wa">Bagikan ke WhatsApp</button>
+    <!-- TOMBOL: Unduh PDF (satu file berisi semua penitip hari itu, tanpa harga jual dan untung) -->
+    <button class="tombol" id="btn-pdf">Unduh PDF</button>
+    <!-- Info hasil salin -->
+    <span id="info-salin"></span>
+
+    <!-- ===== PENGATURAN LAPORAN HARIAN (PDF, teks WhatsApp, dan tampilan Input Harian) ===== -->
+    <h3 style="margin-top:22px">Pengaturan laporan harian</h3>
+    <!-- PETUNJUK -->
+    <p>Ubah tulisan, warna, rata, dan ketebalan laporan harian di sini. Perubahan tersimpan otomatis, ikut tersimpan di Google Sheet, dan dipakai oleh PDF, teks WhatsApp, <b>dan tampilan tabel di tab Input Harian</b>. Rekap punya pengaturan sendiri di tab Rekap.</p>
+
+    <!-- FORM PENGATURAN (dibuat JavaScript, CSS-nya di bawah ini) -->
+    <style>
+      .grup-set { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+      .grup-set label { display:grid; grid-template-columns: 1fr 1fr; gap:6px; align-items:center; margin:6px 0; font-size:14px; }
+      .grup-set input[type=color] { width:60px; height:34px; padding:0; border:1px solid var(--garis); border-radius:6px; }
+      .grup-set input[type=checkbox] { width:22px; height:22px; }
+      .grup-set select { padding:7px; border:1px solid var(--garis); border-radius:6px; font:inherit; }
+      .grup-set summary { cursor:pointer; padding:2px 0; }
+    </style>
+    <div id="form-pengaturan"></div>
+
+    <!-- TOMBOL: Pratinjau PDF (memakai tanggal yang dipilih di bagian atas) -->
+    <button class="tombol" id="btn-pratinjau">Pratinjau PDF</button>
+    <!-- TOMBOL: Kembalikan ke Awal (tekan dua kali) -->
+    <button class="tombol abu" id="btn-reset-pengaturan">Kembalikan ke Awal</button>
+    <!-- Tautan hasil pratinjau (muncul setelah Pratinjau PDF ditekan) -->
+    <p><a id="link-pratinjau" href="#" target="_blank" hidden></a></p>
+    <!-- Info hasil aksi -->
+    <p id="info-pengaturan"></p>
+
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 3: KEUNTUNGAN (hanya untuk Anda)              -->
+  <!-- ===================================================== -->
+  <section id="hal-untung" class="halaman" hidden>
+
+    <!-- PILIH RENTANG TANGGAL REKAP -->
+    <style>
+      .rentang { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:10px; }
+    </style>
+    <div class="rentang">
+      <!-- Kolom: Dari tanggal -->
+      <label>Dari <input type="date" id="dari" class="kolom"></label>
+      <!-- Kolom: Sampai tanggal -->
+      <label>Sampai <input type="date" id="sampai" class="kolom"></label>
+    </div>
+
+    <!-- HASIL REKAP: kartu total + tabel (dibuat JavaScript, CSS di bawah) -->
+    <style>
+      .total-untung { display:flex; gap:10px; margin-bottom:10px; }
+      .total-untung div { flex:1; background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px; }
+      .total-untung b { display:block; font-size:18px; }
+      .hasil-untung h3 { margin:16px 0 6px; font-size:15px; }
+      .tabel-lap { width:100%; border-collapse:collapse; font-size:14px; background:#fff; }
+      .tabel-lap th, .tabel-lap td { padding:6px; border-bottom:1px solid var(--garis); text-align:right; }
+      .tabel-lap th:first-child, .tabel-lap td:first-child { text-align:left; }
+    </style>
+    <div class="hasil-untung" id="hasil-untung"></div>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 4: DATA MASTER (penitip, kue, harga)          -->
+  <!-- ===================================================== -->
+  <section id="hal-master" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Harga setor dipakai di laporan. Harga jual hanya untuk menghitung keuntungan Anda (kosongkan jika belum tahu).</p>
+
+    <!-- DAFTAR BLOK PENITIP (dibuat JavaScript, CSS di bawah) -->
+    <style>
+      .blok-penitip { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px; margin-bottom:10px; }
+      .blok-nama { display:flex; gap:6px; margin-bottom:8px; }
+      .blok-nama input { flex:1; font-weight:700; }
+      .baris-master { display:grid; grid-template-columns: 1fr 76px 76px auto; gap:4px; margin-bottom:4px; }
+      .baris-master input { min-width:0; }
+    </style>
+    <div id="daftar-master"></div>
+
+    <!-- TOMBOL: Tambah Penitip -->
+    <button class="tombol" id="btn-tambah-penitip">+ Tambah Penitip</button>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 5: CADANGAN (ekspor, impor, hapus semua)      -->
+  <!-- ===================================================== -->
+  <section id="hal-cadangan" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Data tersimpan di browser perangkat ini saja. Unduh cadangan secara berkala, atau gunakan untuk memindahkan data ke perangkat lain. Cadangan dibagi per bagian, dan file hanya bisa dipulihkan di bagian yang sama. Pulihkan Catatan Harian dan Data Master sebaiknya dari cadangan yang dibuat pada waktu yang sama, karena keduanya saling terhubung.</p>
+
+    <!-- ===== CADANGAN PER BAGIAN: tiap bagian punya tombol Unduh dan Pulihkan sendiri ===== -->
+    <style>
+      .kotak-cad { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+      .kotak-cad small { display:block; color:#4b5563; margin:2px 0 8px; }
+    </style>
+    <!-- BLOK CADANGAN: Catatan Harian -->
+    <div class="kotak-cad">
+      <b>Catatan Harian</b>
+      <small>Nitip, sisa, dan uang fisik semua tanggal.</small>
+      <!-- TOMBOL: Unduh Catatan Harian -->
+      <button class="tombol" data-cad="harian" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Catatan Harian -->
+      <button class="tombol abu" data-cad="harian" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- BLOK CADANGAN: Pengaturan Laporan -->
+    <div class="kotak-cad">
+      <b>Pengaturan Laporan</b>
+      <small>Tulisan, warna, rata, dan ketebalan laporan.</small>
+      <!-- TOMBOL: Unduh Pengaturan Laporan -->
+      <button class="tombol" data-cad="pengaturan" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Pengaturan Laporan -->
+      <button class="tombol abu" data-cad="pengaturan" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- BLOK CADANGAN: Data Master -->
+    <div class="kotak-cad">
+      <b>Data Master</b>
+      <small>Daftar penitip, kue, harga setor, dan harga jual.</small>
+      <!-- TOMBOL: Unduh Data Master -->
+      <button class="tombol" data-cad="master" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Data Master -->
+      <button class="tombol abu" data-cad="master" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- BLOK CADANGAN: Semuanya -->
+    <div class="kotak-cad">
+      <b>Semuanya</b>
+      <small>Catatan harian, pengaturan laporan, dan Data Master sekaligus.</small>
+      <!-- TOMBOL: Unduh Semuanya -->
+      <button class="tombol" data-cad="semua" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Semuanya -->
+      <button class="tombol abu" data-cad="semua" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- Input file tersembunyi (dipakai semua tombol Pulihkan) -->
+    <input type="file" id="file-impor" accept=".json" hidden>
+    <!-- TOMBOL: Batalkan Pemulihan Terakhir (muncul setelah memulihkan; hilang jika halaman dimuat ulang) -->
+    <button class="tombol merah" id="btn-batal-pulih" hidden>Batalkan Pemulihan Terakhir</button>
+
+    <!-- ===== HAPUS CATATAN HARIAN (pilih satu tanggal atau semua; Data Master tidak ikut terhapus) ===== -->
+    <style>
+      .kotak-hapus { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin:14px 0; }
+      .kotak-hapus label { display:block; margin:8px 0; }
+      .kotak-hapus small { display:block; color:#4b5563; }
+    </style>
+    <div class="kotak-hapus">
+      <b>Hapus Catatan Harian</b>
+      <small>Menghapus nitip, sisa, dan uang fisik. Data Master tidak ikut terhapus. Tiap tombol ditekan dua kali.</small>
+      <!-- Daftar tanggal yang punya catatan (diisi JavaScript) -->
+      <small id="daftar-tgl-hapus" style="margin-top:6px"></small>
+      <!-- Kolom: pilih tanggal yang mau dihapus -->
+      <label>Pilih tanggal <input type="date" id="tgl-hapus" class="kolom"></label>
+      <!-- TOMBOL: Hapus Tanggal Ini -->
+      <button class="tombol merah" id="btn-hapus-tgl">Hapus Tanggal Ini</button>
+      <!-- TOMBOL: Hapus Semua Tanggal -->
+      <button class="tombol merah" id="btn-hapus-semua">Hapus Semua Tanggal</button>
+    </div>
+
+    <!-- ===== PENGATURAN GOOGLE SHEET (data tersimpan online, sama di semua perangkat) ===== -->
+    <style>
+      .kotak-sheet { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin:14px 0; }
+      .kotak-sheet label { display:block; margin:8px 0; }
+      .kotak-sheet input { width:100%; margin-top:3px; }
+    </style>
+    <div class="kotak-sheet">
+      <b>Simpan ke Google Sheet</b>
+      <p style="font-size:13px;margin:4px 0">Isi di setiap perangkat yang ingin dipakai. Unduh Cadangan dulu sebelum menghubungkan. Jika Sheet sudah berisi data, data di perangkat ini diganti dengan isi Sheet.</p>
+      <!-- Kolom: Alamat Apps Script -->
+      <label>Alamat Apps Script <input class="kolom" id="sheet-url" placeholder="https://script.google.com/macros/s/.../exec"></label>
+      <!-- Kolom: Kunci (kata sandi) + tombol mata -->
+      <style>
+        .baris-kunci { display:flex; gap:6px; }
+        .baris-kunci input { width:auto; flex:1; min-width:0; margin-top:0; }
+        .baris-kunci button { margin:0; padding:0 14px; }
+      </style>
+      <label for="sheet-kunci">Kunci (kata sandi)</label>
+      <div class="baris-kunci">
+        <!-- Kolom isian kunci (tersembunyi sebagai titik-titik) -->
+        <input class="kolom" id="sheet-kunci" type="password">
+        <!-- TOMBOL: Mata (tampilkan / sembunyikan kunci) -->
+        <button type="button" class="tombol abu" id="btn-mata" aria-label="Tampilkan atau sembunyikan kunci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
+      <!-- TOMBOL: Hubungkan -->
+      <button class="tombol" id="btn-hubung">Hubungkan</button>
+      <!-- TOMBOL: Putuskan -->
+      <button class="tombol abu" id="btn-putus">Putuskan</button>
+    </div>
+
+    <!-- Info hasil aksi -->
+    <p id="info-cadangan"></p>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN: GANTUNGAN (saldo kurang / lebih belum selesai) -->
+  <!-- ===================================================== -->
+  <section id="hal-gantungan" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Daftar penitip yang saldonya masih kurang atau lebih (belum Pas), lengkap dengan tanggal munculnya. Saldo hilang dari daftar ini setelah penitip nitip lagi dan uang fisiknya Pas.</p>
+
+    <!-- KOLOM: batas hari untuk ditandai merah -->
+    <label>Tandai merah jika sudah lebih dari <input type="number" id="batas-hari" class="kolom" value="7" min="1" style="width:70px"> hari tidak nitip</label>
+
+    <!-- HASIL (dibuat JavaScript, CSS-nya di bawah ini; kotak total memakai gaya yang sama dengan halaman Keuntungan) -->
+    <style>
+      .kartu-gantung { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+      .kartu-gantung .judul { display:flex; justify-content:space-between; font-weight:700; }
+      .kartu-gantung small { display:block; margin:4px 0; }
+      .lama { color: var(--merah); font-weight:700; }
+      #hasil-gantungan { margin-top:10px; }
+    </style>
+    <div id="hasil-gantungan"></div>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN: REKAP PERIODE (penitip yang dibayar per periode) -->
+  <!-- ===================================================== -->
+  <section id="hal-rekap" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Untuk penitip yang uangnya dikumpulkan di kotak dan diambil sewaktu-waktu. Tandai penitipnya di tab Data Master ("Dibayar per periode"). Isi uang fisik (yang dimasukkan ke kotak) tiap hari di Input Harian seperti biasa; kurang atau lebih terbawa ke hari berikutnya. Input Harian dan laporan harian tidak berubah.</p>
+
+    <!-- PILIH PENITIP -->
+    <label>Penitip <select id="rekap-penitip" class="kolom"></select></label>
+
+    <!-- HASIL REKAP (dibuat JavaScript, CSS-nya di bawah ini; tabel memakai gaya halaman Keuntungan) -->
+    <style>
+      #hasil-rekap { margin-top:10px; }
+      #hasil-rekap h3 { margin:12px 0 6px; font-size:15px; }
+      .rekap-hari td { font-style:italic; background:#f3f5f4; }
+      .rekap-form { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin:12px 0; }
+      .rekap-form label { display:block; margin:8px 0; }
+      .rekap-form input { width:100%; margin-top:3px; }
+    </style>
+    <div id="hasil-rekap"></div>
+
+    <!-- Tautan hasil pratinjau PDF Rekap (muncul setelah Pratinjau PDF Rekap ditekan) -->
+    <p><a id="link-pratinjau-rekap" href="#" target="_blank" hidden></a></p>
+    <!-- Info hasil aksi -->
+    <p id="info-rekap"></p>
+
+    <!-- ===== PENGATURAN TAMPILAN PDF REKAP (terpisah dari laporan harian) ===== -->
+    <h3 style="margin-top:22px">Pengaturan tampilan PDF Rekap</h3>
+    <p>Berlaku untuk PDF dan teks WhatsApp rekap saja, tidak mengubah laporan harian. Pertama kali, isinya disalin dari pengaturan laporan harian.</p>
+    <!-- FORM PENGATURAN REKAP (dibuat JavaScript) -->
+    <div id="form-pengaturan-rekap"></div>
+    <!-- TOMBOL: Kembalikan ke Awal (pengaturan rekap) -->
+    <button class="tombol abu" id="btn-reset-rekap">Kembalikan ke Awal</button>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- JAVASCRIPT (semua logika ada di bawah, per blok)      -->
+  <!-- ===================================================== -->
+  <script>
+
+    // ===== DATA AWAL: 19 penitip dan kuenya (nama, harga setor) =====
+    // Dipakai oleh: Data Master (isi awal). Format: [nama penitip, [[nama kue, harga setor], ...]]
+    const DATA_AWAL = [
+      ['Griya', [['Kue - kue',1000]]],
+      ['Cilok', [['Cilok Tusuk',800],['Cilok Bungkus',4000]]],
+      ['Madonat', [['Donat',1000]]],
+      ['Dimsum', [['Dimsum',4500]]],
+      ['Mayo', [['Mayo',1700]]],
+      ['NM Gs. Alm', [['Apem',1700],['Talam',1700]]],
+      ['NM Griya', [['Talam',1700]]],
+      ['Nopal', [['Kue - kue',1700],['Gabin',2000],['Pesenan',1700]]],
+      ['Mba dewi', [['Kebab',2000],['Salad Jelly',6000],['Pastel sayur (Plstk)',1700],['Pastel Bihun',1200]]],
+      ['Tasya', [['Puding',1700],['Ketan sundeng',1700]]],
+      ['Budiana', [['Kue sus (Besar)',1700],['Kue sus (Kecil)',1200],['Bolu ketan hitam',1700],['Bolu pisang',1700],['Lapis (Plastik)',1000],['Lapis (Mika)',1700],['Bolu karamel',2000],['Wingko',2000],['Cake singkong',1700],['Bolu Jadul',1700],['Ongol ongol',1700],['Ubi Ungu',1700]]],
+      ['Bude', [['Kue - kue',1000],['SS',1700],['Risol',1000],['Mendut + Lemper',1700]]],
+      ['Bu Yanti', [['Lopis',5000],['Arem',1700],['Sosis solo',1700],['Wajik',1700],['Krekes',1700],['Bugis mandi',1700],['Martabak',1000],['Apem',1000],['Pastel',1700],['Risol',1700],['Lemper',1700]]],
+      ['Donat seres', [['Donat',800]]],
+      ['Mm Nurul', [['Lapis (Grs kcl)',1700]]],
+      ['Sosis solo', [['Sosis solo',1700]]],
+      ['Onde', [['Onde',1000]]],
+      ['Mba ciken', [['Bubur sumsum',4500],['Cang ijo',4500],['Timus',1000]]],
+      ['Mochi', [['Mochi (pesanan)',4500],['Mochi (Nitip)',4500]]]
+    ];
+
+    // ===== ALAT BANTU KECIL =====
+    // Dipakai oleh: semua halaman
+    const $ = id => document.getElementById(id);
+    const uid = () => Math.random().toString(36).slice(2, 9);
+    const rp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const angka = v => (v === '' ? '' : Number(v));
+    function hariIni() {
+      const t = new Date();
+      return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    }
+    function namaTanggal(tgl) {
+      return new Date(tgl + 'T00:00:00').toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+    }
+
+    // ===== PENYIMPANAN DATA (localStorage di browser) =====
+    // Dipakai oleh: semua halaman. Bentuk data: { penitip:[{id,nama,kue:[{id,nama,setor,jual}]}], hari:{ tanggal:{ idPenitip:{hadir,fisik,kue:{idKue:{nama,nitip,sisa,setor,jual}}} } } }
+    const KUNCI = 'catatanTitipanKue';
+    let db = null;
+    let tglAktif = hariIni();
+
+    function buatDataAwal() {
+      return {
+        penitip: DATA_AWAL.map(([nama, daftar]) => ({
+          id: uid(), nama,
+          kue: daftar.map(([n, h]) => ({ id: uid(), nama: n, setor: h, jual: 0 }))
+        })),
+        hari: {}
+      };
+    }
+    function muat() {
+      try { db = JSON.parse(localStorage.getItem(KUNCI)); } catch (e) { db = null; }
+      if (!db || !Array.isArray(db.penitip)) db = buatDataAwal();
+    }
+    function simpan() {
+      try { localStorage.setItem(KUNCI, JSON.stringify(db)); } catch (e) { /* penyimpanan diblokir: data hanya hidup selama halaman terbuka */ }
+      jadwalDorong(); // kirim ke Google Sheet (jika sudah terhubung)
+    }
+
+    // ===== AKSES DATA HARIAN =====
+    // Dipakai oleh: Input Harian, Laporan, Keuntungan
+    const cariPenitip = id => db.penitip.find(p => p.id === id);
+    const entri = (tgl, pid) => (db.hari[tgl] || {})[pid];
+    function pastikanEntri(tgl, pid) {
+      db.hari[tgl] = db.hari[tgl] || {};
+      db.hari[tgl][pid] = db.hari[tgl][pid] || { hadir: false, fisik: '', kue: {} };
+      return db.hari[tgl][pid];
+    }
+    // Harga disalin ke catatan hari itu, jadi laporan lama tidak berubah jika harga diganti nanti
+    function pastikanKue(tgl, pid, kid) {
+      const e = pastikanEntri(tgl, pid);
+      if (!e.kue[kid]) {
+        const k = cariPenitip(pid).kue.find(x => x.id === kid);
+        e.kue[kid] = { nama: k.nama, nitip: '', sisa: '', setor: k.setor, jual: k.jual };
+      }
+      return e.kue[kid];
+    }
+
+    // ===== HITUNGAN (laku, uang, total, saldo) =====
+    // Dipakai oleh: Input Harian, Laporan, Keuntungan
+    // Laku = Nitip - Sisa | Uang = Laku x Harga setor | Harus disetor = Total - Saldo sebelumnya
+    function ringkas(tgl, p) {
+      const e = entri(tgl, p.id);
+      const baris = [];
+      let total = 0, untung = 0;
+      if (e && e.hadir) {
+        // urutan kue mengikuti Data Master; kue yang sudah dihapus dari master tetap ikut di bagian akhir
+        const ids = [...p.kue.map(k => k.id), ...Object.keys(e.kue).filter(id => !p.kue.some(k => k.id === id))];
+        ids.forEach(id => {
+          const c = e.kue[id];
+          if (!c || !(c.nitip > 0)) return;
+          const siap = c.sisa !== '' && c.sisa !== undefined;
+          const laku = siap ? c.nitip - c.sisa : 0;
+          const uang = laku * c.setor;
+          // harga jual: pakai yang tersalin di hari itu; jika kosong (0), pakai harga jual terbaru di Data Master
+          const km = p.kue.find(x => x.id === id);
+          const jual = c.jual > 0 ? c.jual : (km ? km.jual : 0);
+          const u = jual > 0 ? laku * (jual - c.setor) : 0;
+          baris.push({ id, nama: c.nama, setor: c.setor, nitip: c.nitip, sisa: c.sisa, siap, laku, uang, untung: u });
+          total += uang; untung += u;
+        });
+      }
+      const hadir = !!(e && e.hadir);
+      const sebelum = hadir ? saldoSebelum(tgl, p) : 0;
+      const tglSebelum = hadir && sebelum !== 0 ? tglSaldoSebelum(tgl, p) : null;
+      const harus = total - sebelum;
+      const fisik = (e && e.fisik !== '' && e.fisik != null) ? e.fisik : null;
+      // untungSaldo: saldo hari lalu ikut mengubah keuntungan pada hari uang fisik diisi (kurang mengurangi, lebih menambah), sesuai uang yang benar-benar keluar
+      return { hadir, baris, total, untung, untungSaldo: hadir && fisik !== null ? sebelum : 0, sebelum, tglSebelum, harus, fisik, saldo: fisik === null ? null : fisik - harus };
+    }
+    // Saldo = uang fisik - harus disetor. Negatif = kurang, positif = lebih. Dibawa ke hari berikutnya.
+    // Tanggal terakhir penitip ini hadir dengan uang fisik terisi = tanggal munculnya kurang/lebih yang terbawa
+    function tglSaldoSebelum(tgl, p) {
+      const tglLalu = Object.keys(db.hari)
+        .filter(t => t < tgl && db.hari[t][p.id] && db.hari[t][p.id].hadir && db.hari[t][p.id].fisik !== '' && db.hari[t][p.id].fisik != null)
+        .sort().reverse();
+      return tglLalu.length ? tglLalu[0] : null;
+    }
+    function saldoSebelum(tgl, p) {
+      const t = tglSaldoSebelum(tgl, p);
+      return t ? ringkas(t, p).saldo : 0;
+    }
+    // Tanggal angka lengkap untuk keterangan, contoh: 22/10/2026 (hari/bulan/tahun)
+    function labelTgl(t) {
+      const [y, b, h] = t.split('-');
+      return h + '/' + b + '/' + y;
+    }
+    function labelSebelum(s, t, profil) {
+      const L = pengaturan(profil); // profil: 'rekap' untuk tab Rekap, kosong untuk laporan harian
+      const nama = s < 0 ? L.tbh : s > 0 ? L.ptg : 'Saldo sebelumnya'; // tulisan diatur di tab Laporan / Rekap
+      return t ? nama + ' (' + labelTgl(t) + ')' : nama; // t = tanggal munculnya
+    }
+    function labelSaldo(s) { return s === null ? '-' : s < 0 ? 'Kurang ' + rp(-s) : s > 0 ? 'Lebih ' + rp(s) : 'Pas'; }
+    function kelasSaldo(s) { return s === null || s === 0 ? '' : s < 0 ? 'minus' : 'plus'; }
+
+    // ===== HALAMAN INPUT HARIAN: gambar kartu penitip =====
+    // Mengisi elemen: #daftar-input. Tampilan kartu otomatis mengikuti pengaturan PDF (tulisan, warna, rata, tebal, miring,
+    // ukuran huruf, kolom, garis). Tidak ada pengaturan terpisah: ubah di tab Pengaturan, tampilan di sini ikut berubah.
+    const KELUARGA_HURUF = { helvetica: 'Helvetica, Arial, sans-serif', times: "'Times New Roman', Times, serif", courier: "'Courier New', Courier, monospace" }; // tanda kutip tunggal: nilai ini dipakai di dalam atribut style="..."
+    const RATA_CSS = { kiri: 'left', tengah: 'center', kanan: 'right' };
+    // Gaya PDF menjadi CSS layar (ukuran huruf PDF dikali 1,75 menjadi piksel)
+    function cssGaya(g, rata) {
+      const px = Math.round(batas(g.ukuran, 5, 20, 8) * 1.75);
+      return `color:${g.warna};background:${g.latar};font-weight:${g.tebal ? 700 : 400};font-style:${g.miring ? 'italic' : 'normal'};text-align:${RATA_CSS[rata || g.rata] || 'left'};font-size:${px}px;`;
+    }
+    // Garis dan jarak sel tabel dari pengaturan PDF
+    function cssTabel() {
+      const L = pengaturan();
+      const garis = L.pdfTema === 'plain' ? 'none' : Math.max(1, Math.round(batas(L.pdfTebalGaris, 0.05, 1, 0.1) * 8)) + 'px solid ' + L.pdfWarnaGaris;
+      const pad = (batas(L.pdfPadding, 0, 5, 1.2) * 3.2 + 1).toFixed(1);
+      return { tabel: `width:100%;border-collapse:collapse;font-family:${KELUARGA_HURUF[L.pdfFamily] || KELUARGA_HURUF.helvetica};`, sel: `border:${garis};padding:${pad}px;` };
+    }
+    function renderInput() {
+      const L = pengaturan(), css = cssTabel(), gNama = gaya('nama');
+      // kolom yang tampil (sama dengan PDF): [kunci gaya, judul kolom]
+      const kol = [['kolKue', L.pdfKue], ['kolJumlah', L.pdfJumlah], ['kolSisa', L.pdfSisa], ['kolLaku', L.pdfLaku], ['kolHarga', L.pdfHarga], ['kolUang', L.pdfUang]].filter(([k]) => gaya(k).tampil !== false);
+      const n = kol.length, gk = kol.map(([k]) => gaya(k)), gh = gaya('kepala');
+      $('daftar-input').innerHTML = db.penitip.map(p => {
+        const e = entri(tglAktif, p.id);
+        const hadir = !!(e && e.hadir);
+        // isi tabel kue hanya muncul jika penitip hadir
+        const isi = !hadir ? '' : `
+          <!-- ISI KARTU: tabel kue milik ${esc(p.nama)} (susunan sama dengan PDF) -->
+          <div class="kartu-isi">
+            <table class="tabel-kue" style="${css.tabel}">
+              <!-- BARIS JUDUL KOLOM -->
+              <tr>${kol.map(([k, judul], i) => `<th style="${cssGaya(gh, gk[i].rata)}${css.sel}${gk[i].lebar > 0 ? 'width:' + Math.round(gk[i].lebar * 3.78) + 'px;' : ''}">${esc(judul)}</th>`).join('')}</tr>
+              <!-- BARIS KUE -->
+              ${p.kue.map(k => {
+                const c = (e.kue && e.kue[k.id]) || {};
+                const sel = {
+                  kolKue: esc(k.nama),
+                  kolJumlah: `<input type="number" min="0" inputmode="numeric" data-aksi="nitip" data-p="${p.id}" data-k="${k.id}" value="${c.nitip ?? ''}">`,
+                  kolSisa: `<input type="number" min="0" inputmode="numeric" data-aksi="sisa" data-p="${p.id}" data-k="${k.id}" value="${c.sisa ?? ''}">`,
+                  kolLaku: `<span data-laku="${k.id}">-</span>`,
+                  kolHarga: rp(k.setor),
+                  kolUang: `<span data-uang="${k.id}">-</span>`
+                };
+                return `<tr>${kol.map(([key], i) => `<td style="${cssGaya(gk[i])}${css.sel}">${sel[key]}</td>`).join('')}</tr>`;
+              }).join('')}
+              <!-- BARIS RINGKASAN (tulisan dan gaya mengikuti PDF; diisi dan disembunyikan otomatis oleh JavaScript) -->
+              ${['brt', 'saldo', 'total', 'diterima', 'baru'].map(kode => `<tr data-r="${kode}"><td colspan="${n - 1}"></td><td>${kode === 'diterima' ? `<input type="number" min="0" inputmode="numeric" data-aksi="fisik" data-p="${p.id}" value="${e.fisik ?? ''}">` : ''}</td></tr>`).join('')}
+            </table>
+          </div>`;
+        return `
+        <!-- KARTU PENITIP: ${esc(p.nama)} -->
+        <div class="kartu" id="kartu-${p.id}">
+          <!-- KEPALA KARTU: centang hadir + nama (gaya baris nama penitip di PDF) -->
+          <label class="kartu-kepala" style="${cssGaya(gNama)}font-family:${KELUARGA_HURUF[L.pdfFamily] || KELUARGA_HURUF.helvetica};">
+            <input type="checkbox" data-aksi="hadir" data-p="${p.id}" ${hadir ? 'checked' : ''}>
+            <span style="flex:1;text-align:${RATA_CSS[gNama.rata] || 'left'}">${esc(gNama.besar ? p.nama.toUpperCase() : p.nama)}</span>
+          </label>
+          ${isi}
+        </div>`;
+      }).join('');
+      db.penitip.forEach(p => perbaruiKartu(p.id));
+      perbaruiRingkasHari();
+    }
+
+    // Hitung ulang angka di satu kartu tanpa menggambar ulang (supaya kolom isian tidak kehilangan fokus)
+    function perbaruiKartu(pid) {
+      const p = cariPenitip(pid), kartu = $('kartu-' + pid), e = entri(tglAktif, pid);
+      if (!kartu || !e || !e.hadir) return;
+      const r = ringkas(tglAktif, p), L = pengaturan(), css = cssTabel();
+      p.kue.forEach(k => {
+        const b = r.baris.find(x => x.id === k.id);
+        const laku = kartu.querySelector(`[data-laku="${k.id}"]`), uang = kartu.querySelector(`[data-uang="${k.id}"]`);
+        if (laku) laku.textContent = b && b.siap ? b.laku : '-';
+        if (uang) uang.textContent = b && b.siap ? rp(b.uang) : '-';
+      });
+      // baris ringkasan: urutan dan tulisan sama dengan PDF (uang kue, saldo hari lalu, total, diterima, kurang / lebih)
+      const baris = {
+        brt: { kunci: 'rBrt', label: L.pdfBrt, nilai: rp(r.total), ada: true },
+        saldo: { kunci: r.sebelum < 0 ? 'rTbh' : 'rPtg', label: labelSebelum(r.sebelum, r.tglSebelum), nilai: rp(Math.abs(r.sebelum)), ada: r.sebelum !== 0 },
+        total: { kunci: 'rTotal', label: L.pdfTotal, nilai: rp(r.harus), ada: r.sebelum !== 0 },
+        diterima: { kunci: 'rDiterima', label: L.pdfDiterima, nilai: null, ada: true }, // selalu tampil: berisi kolom uang fisik
+        baru: { kunci: r.saldo < 0 ? 'rKurang' : 'rLebih', label: r.saldo < 0 ? L.kurang : L.lebih, nilai: r.saldo === null ? '' : rp(Math.abs(r.saldo)), ada: r.saldo !== null && r.saldo !== 0 }
+      };
+      Object.entries(baris).forEach(([kode, b]) => {
+        const g = gaya(b.kunci), tr = kartu.querySelector(`[data-r="${kode}"]`);
+        tr.style.display = b.ada && (kode === 'diterima' || g.tampil !== false) ? '' : 'none';
+        tr.children[0].style.cssText = cssGaya(g) + css.sel;
+        tr.children[1].style.cssText = cssGaya(g, g.rataNilai) + css.sel;
+        tr.children[0].textContent = b.label;
+        if (b.nilai !== null) tr.children[1].textContent = b.nilai;
+      });
+    }
+    function perbaruiRingkasHari() {
+      let hadir = 0, total = 0;
+      db.penitip.forEach(p => { const r = ringkas(tglAktif, p); if (r.hadir) { hadir++; total += r.total; } });
+      $('ringkas-hadir').textContent = 'Hadir ' + hadir + ' penitip';
+      $('ringkas-total').textContent = rp(total);
+    }
+
+    // ===== HALAMAN INPUT HARIAN: reaksi saat mengetik / mencentang =====
+    // Dipakai oleh: #daftar-input
+    $('daftar-input').addEventListener('input', ev => {
+      const t = ev.target, a = t.dataset.aksi, pid = t.dataset.p;
+      if (!a || a === 'hadir') return;
+      if (a === 'fisik') pastikanEntri(tglAktif, pid).fisik = angka(t.value);
+      else pastikanKue(tglAktif, pid, t.dataset.k)[a] = angka(t.value);
+      simpan(); perbaruiKartu(pid); perbaruiRingkasHari();
+    });
+    $('daftar-input').addEventListener('change', ev => {
+      if (ev.target.dataset.aksi !== 'hadir') return;
+      pastikanEntri(tglAktif, ev.target.dataset.p).hadir = ev.target.checked;
+      simpan(); renderInput();
+    });
+
+    // ===== PENGATURAN LAPORAN (tulisan, warna, rata, ketebalan) =====
+    // Ada dua set pengaturan yang berdiri sendiri: 'harian' (tab Laporan; juga dipakai tampilan Input Harian) dan 'rekap' (tab Rekap).
+    // Disimpan di db.pengaturan dan db.pengaturanRekap (ikut tersimpan ke Google Sheet).
+    const DEF_PENGATURAN = {
+      judul: 'Dari YULI',
+      pdfKue: 'Kue', pdfJumlah: 'Jumlah', pdfSisa: 'Sisa', pdfLaku: 'Laku', pdfHarga: 'Harga', pdfUang: 'Uang',
+      pdfBrt: 'Brt', pdfTotal: 'Total', pdfDiterima: 'Diterima',
+      waNitip: 'nitip', waSisa: 'sisa', waLaku: 'laku', waTotal: 'Total', waHarus: 'Harus disetor', waDiterima: 'Uang diterima',
+      kurang: 'Kurang', lebih: 'Lebih', tbh: 'Tbh', ptg: 'Ptg',
+      pdfFamily: 'helvetica', pdfLebar: 110, pdfTema: 'grid', pdfWarnaGaris: '#0a0a0a', pdfTebalGaris: 0.1, pdfJarak: 5, pdfPadding: 1.2, pdfCatatan: '',
+      // khusus Rekap:
+      rkJudul: 'Rekap {nama} ({periode})', rkTanggal: 'Tanggal', rkLaku: 'Total laku', rkPeriode: 'Total periode', rkKotak: 'Total di kotak',
+      rkKurangAkhir: 'Kurang (ke periode berikutnya)', rkLebihAkhir: 'Lebih (ke periode berikutnya)'
+    };
+    // Pengaturan Rekap pertama kali disalin dari pengaturan harian (tampilannya sama seperti sebelumnya), lalu berdiri sendiri
+    function klonRekap() {
+      const c = JSON.parse(JSON.stringify(db.pengaturan || {})), g = c.gaya = c.gaya || {};
+      [['rBrt', 'pPeriode'], ['rTbh', 'pAwalTbh'], ['rSaldo', 'pAwalTbh'], ['rPtg', 'pAwalPtg'], ['rSaldo', 'pAwalPtg'], ['rTotal', 'pKotak'], ['rKurang', 'pAkhirKurang'], ['rLebih', 'pAkhirLebih'], ['kolKue', 'kolTanggal']]
+        .forEach(([dari, ke]) => { if (g[dari] && !g[ke]) g[ke] = JSON.parse(JSON.stringify(g[dari])); });
+      return c;
+    }
+    function bacaProfil(profil) {
+      if (profil === 'rekap') { if (!db.pengaturanRekap) db.pengaturanRekap = klonRekap(); return db.pengaturanRekap; }
+      return db.pengaturan || {};
+    }
+    function profilTulis(profil) {
+      if (profil === 'rekap') { bacaProfil('rekap'); return db.pengaturanRekap; }
+      db.pengaturan = db.pengaturan || {}; return db.pengaturan;
+    }
+    function pengaturan(profil) { return Object.assign({}, DEF_PENGATURAN, bacaProfil(profil)); }
+    function hexKeRgb(h) { const n = parseInt(String(h).slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+    const batas = (v, min, max, awal) => (v === '' || v == null || isNaN(Number(v))) ? awal : Math.min(max, Math.max(min, Number(v)));
+
+    // Gaya tiap bagian PDF. T(warna, perubahan) membuat gaya bawaan; yang tidak dipakai suatu bagian diabaikan.
+    // Isi: warna tulisan, latar, tebal, miring, rata (kiri/tengah/kanan), rataNilai (rata angka di baris ringkasan), ukuran huruf, tampil, besar, lebar kolom
+    const T = (warna, o) => Object.assign({ warna, latar: '#ffffff', tebal: false, miring: false, rata: 'kiri', rataNilai: 'kanan', ukuran: 8, tampil: true, besar: false, lebar: 0 }, o);
+    const GAYA_DEF = {
+      judul: T('#000000', { ukuran: 13 }),
+      tanggal: T('#000000', { ukuran: 9 }),
+      nama: T('#ffffff', { latar: '#0f766e', tebal: true }),
+      kepala: T('#1e1e1e', { latar: '#e6f2f0', tebal: true }),
+      kolTanggal: T('#141414'),
+      kolKue: T('#141414'), kolJumlah: T('#141414', { rata: 'kanan' }), kolSisa: T('#141414', { rata: 'kanan' }),
+      kolLaku: T('#141414', { rata: 'kanan' }), kolHarga: T('#141414', { rata: 'kanan' }), kolUang: T('#141414', { rata: 'kanan' }),
+      rBrt: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      rTbh: T('#141414', { rata: 'kanan' }), // saldo hari lalu berupa kekurangan (Tbh)
+      rPtg: T('#141414', { rata: 'kanan' }), // saldo hari lalu berupa potongan / kelebihan (Ptg)
+      rTotal: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      rDiterima: T('#141414', { rata: 'kanan' }),
+      rKurang: T('#15803d', { tebal: true, rata: 'kanan' }),
+      rLebih: T('#b91c1c', { tebal: true, rata: 'kanan' }),
+      // khusus Rekap (ringkasan seluruh periode):
+      pLaku: T('#141414', { rata: 'kanan' }),
+      pPeriode: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      pAwalTbh: T('#141414', { rata: 'kanan' }), pAwalPtg: T('#141414', { rata: 'kanan' }),
+      pKotak: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      pAkhirKurang: T('#15803d', { tebal: true, rata: 'kanan' }), pAkhirLebih: T('#b91c1c', { tebal: true, rata: 'kanan' }),
+      catatan: T('#000000', { miring: true })
+    };
+    const LAMA = { rBrt: 'warnaBrt', rTotal: 'warnaTotal', rKurang: 'warnaKurang', rLebih: 'warnaLebih' }; // nama pengaturan versi sebelumnya
+    function gaya(k, profil) {
+      const P = bacaProfil(profil), d = Object.assign({}, GAYA_DEF[k]);
+      if (LAMA[k] && P[LAMA[k]]) d.warna = P[LAMA[k]];
+      if (k === 'kolHarga' && P.pdfHargaOn === false) d.tampil = false;
+      const lama = (k === 'rTbh' || k === 'rPtg') ? (P.gaya || {}).rSaldo : null; // pengaturan lama: satu gaya untuk Tbh dan Ptg
+      return Object.assign(d, lama, (P.gaya || {})[k]);
+    }
+    const RATA = { kiri: 'left', tengah: 'center', kanan: 'right' };
+    // Ubah gaya menjadi gaya sel tabel PDF
+    function gayaSel(g) {
+      return { textColor: hexKeRgb(g.warna), fillColor: hexKeRgb(g.latar), halign: RATA[g.rata] || 'left', fontSize: batas(g.ukuran, 5, 20, 8),
+               fontStyle: g.tebal ? (g.miring ? 'bolditalic' : 'bold') : (g.miring ? 'italic' : 'normal') };
+    }
+
+    // Daftar bagian PDF di halaman pengaturan: [kunci, nama, pilihan yang tersedia]
+    const SEMUA = ['warna', 'latar', 'tebal', 'miring', 'rata', 'rataNilai', 'ukuran'];
+    const KOL = ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar'];
+    const BARIS = ['tampil'].concat(SEMUA);
+    const ELEMEN = [
+      ['judul', 'Judul laporan', ['warna', 'tebal', 'miring', 'rata', 'ukuran']],
+      ['tanggal', 'Tanggal di bawah judul', ['tampil', 'warna', 'tebal', 'miring', 'rata', 'ukuran']],
+      ['nama', 'Baris nama penitip', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'besar']],
+      ['kepala', 'Baris judul kolom (rata ikut kolom)', ['warna', 'latar', 'tebal', 'miring', 'ukuran']],
+      ['kolKue', 'Kolom kue', KOL], ['kolJumlah', 'Kolom jumlah titipan', KOL], ['kolSisa', 'Kolom sisa', KOL], ['kolLaku', 'Kolom laku', KOL],
+      ['kolHarga', 'Kolom harga', ['tampil'].concat(KOL)], ['kolUang', 'Kolom uang', KOL],
+      ['rBrt', 'Baris jumlah uang kue', BARIS],
+      ['rTbh', 'Baris kekurangan hari lalu (Tbh)', BARIS],
+      ['rPtg', 'Baris potongan hari lalu (Ptg)', BARIS],
+      ['rTotal', 'Baris Total setelah saldo', BARIS],
+      ['rDiterima', 'Baris uang diterima', BARIS],
+      ['rKurang', 'Baris Kurang', BARIS],
+      ['rLebih', 'Baris Lebih', BARIS],
+      ['catatan', 'Catatan di bagian bawah', ['warna', 'tebal', 'miring', 'rata', 'ukuran']]
+    ];
+    const ELEMEN_REKAP = [
+      ['nama', 'Baris judul rekap', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran']],
+      ['kepala', 'Baris judul kolom (rata ikut kolom)', ['warna', 'latar', 'tebal', 'miring', 'ukuran']],
+      ['kolTanggal', 'Kolom tanggal', KOL], ['kolKue', 'Kolom kue', KOL], ['kolJumlah', 'Kolom jumlah titipan', KOL], ['kolSisa', 'Kolom sisa', KOL], ['kolLaku', 'Kolom laku', KOL], ['kolUang', 'Kolom uang', KOL],
+      ['rBrt', 'Baris total uang kue (tiap hari)', BARIS],
+      ['rTbh', 'Baris kekurangan hari lalu (tiap hari)', BARIS],
+      ['rPtg', 'Baris potongan hari lalu (tiap hari)', BARIS],
+      ['rTotal', 'Baris total setelah saldo (tiap hari)', BARIS],
+      ['rDiterima', 'Baris uang diterima (tiap hari)', BARIS],
+      ['rKurang', 'Baris kurang (tiap hari)', BARIS],
+      ['rLebih', 'Baris lebih (tiap hari)', BARIS],
+      ['pLaku', 'Ringkasan: baris total laku', BARIS],
+      ['pPeriode', 'Ringkasan: baris total periode', BARIS],
+      ['pAwalTbh', 'Ringkasan: saldo awal berupa kekurangan', BARIS],
+      ['pAwalPtg', 'Ringkasan: saldo awal berupa potongan', BARIS],
+      ['pKotak', 'Ringkasan: baris total uang di kotak', BARIS],
+      ['pAkhirKurang', 'Ringkasan: kurang di akhir periode', BARIS],
+      ['pAkhirLebih', 'Ringkasan: lebih di akhir periode', BARIS],
+      ['catatan', 'Catatan di bagian bawah', ['warna', 'tebal', 'miring', 'rata', 'ukuran']]
+    ];
+    const NAMA_PILIHAN = { tampil: 'Tampilkan', warna: 'Warna tulisan', latar: 'Warna latar', tebal: 'Tebal', miring: 'Miring', rata: 'Rata tulisan', rataNilai: 'Rata angka', ukuran: 'Ukuran huruf (5 sampai 20)', besar: 'Semua HURUF BESAR', lebar: 'Lebar kolom (mm, 0 = otomatis)' };
+    const PILIHAN_RATA = [['kiri', 'Rata kiri'], ['tengah', 'Rata tengah'], ['kanan', 'Rata kanan']];
+
+    // Daftar isian tulisan: [kunci, nama isian]
+    const WA_RINCI = [['waNitip', 'Kata "nitip"'], ['waSisa', 'Kata "sisa"'], ['waLaku', 'Kata "laku"'], ['waTotal', 'Jumlah uang kue'], ['waHarus', 'Harus disetor'], ['waDiterima', 'Uang diterima']];
+    const KELOMPOK = [
+      { judul: 'Judul laporan (PDF dan WhatsApp)', isi: [['judul', 'Judul']] },
+      { judul: 'Judul kolom tabel PDF', isi: [['pdfKue', 'Kolom kue'], ['pdfJumlah', 'Kolom jumlah titipan'], ['pdfSisa', 'Kolom sisa'], ['pdfLaku', 'Kolom laku'], ['pdfHarga', 'Kolom harga'], ['pdfUang', 'Kolom uang']] },
+      { judul: 'Tulisan baris ringkasan PDF', isi: [['pdfBrt', 'Jumlah uang kue'], ['pdfTotal', 'Total setelah saldo'], ['pdfDiterima', 'Uang diterima'], ['pdfCatatan', 'Catatan di bagian bawah']] },
+      { judul: 'Tulisan laporan WhatsApp', isi: WA_RINCI },
+      { judul: 'Tulisan bersama (PDF dan WhatsApp)', isi: [['kurang', 'Kurang'], ['lebih', 'Lebih'], ['tbh', 'Kekurangan hari lalu'], ['ptg', 'Potongan hari lalu']] }
+    ];
+    const KELOMPOK_REKAP = [
+      { judul: 'Judul rekap (PDF dan WhatsApp)', isi: [['rkJudul', 'Judul (pakai {nama} dan {periode})']] },
+      { judul: 'Judul kolom tabel PDF rekap', isi: [['rkTanggal', 'Kolom tanggal'], ['pdfKue', 'Kolom kue'], ['pdfJumlah', 'Kolom jumlah titipan'], ['pdfSisa', 'Kolom sisa'], ['pdfLaku', 'Kolom laku'], ['pdfUang', 'Kolom uang']] },
+      { judul: 'Tulisan baris tiap hari', isi: [['pdfBrt', 'Total uang kue hari itu'], ['tbh', 'Kekurangan hari lalu'], ['ptg', 'Potongan hari lalu'], ['pdfTotal', 'Total setelah saldo'], ['pdfDiterima', 'Uang diterima (masuk kotak)'], ['kurang', 'Kurang'], ['lebih', 'Lebih']] },
+      { judul: 'Tulisan baris ringkasan periode', isi: [['rkLaku', 'Total laku'], ['rkPeriode', 'Total periode'], ['rkKotak', 'Total uang di kotak'], ['rkKurangAkhir', 'Kurang di akhir periode'], ['rkLebihAkhir', 'Lebih di akhir periode'], ['pdfCatatan', 'Catatan di bagian bawah']] },
+      { judul: 'Tulisan rekap untuk WhatsApp', isi: WA_RINCI }
+    ];
+
+    // Satu isian gaya (kotak centang, warna, pilihan rata, atau angka). attr = penanda profil
+    function kontrol(el, prop, nilai, attr) {
+      const a = `${attr} data-el="${el}" data-prop="${prop}"`;
+      let isi;
+      if (['tampil', 'tebal', 'miring', 'besar'].includes(prop)) isi = `<input type="checkbox" ${a} ${nilai ? 'checked' : ''}>`;
+      else if (prop === 'warna' || prop === 'latar') isi = `<input type="color" ${a} value="${esc(nilai)}">`;
+      else if (prop === 'rata' || prop === 'rataNilai') isi = `<select ${a}>${PILIHAN_RATA.map(([v, n]) => `<option value="${v}" ${v === nilai ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+      else isi = `<input class="kolom" type="number" step="any" ${a} value="${nilai}">`;
+      return `<label>${NAMA_PILIHAN[prop]}${isi}</label>`;
+    }
+    // Gambar semua isian pengaturan. profil 'harian' mengisi #form-pengaturan (tab Laporan), 'rekap' mengisi #form-pengaturan-rekap (tab Rekap)
+    function renderPengaturan(profil) {
+      const rekap = profil === 'rekap', L = pengaturan(profil), attr = `data-profil="${rekap ? 'rekap' : 'harian'}"`;
+      const kel = rekap ? KELOMPOK_REKAP : KELOMPOK, elem = rekap ? ELEMEN_REKAP : ELEMEN;
+      const teks = (k, nama) => `<label>${nama}<input class="kolom" ${attr} data-key="${k}" value="${esc(L[k])}"></label>`;
+      const angka = (k, nama, step) => `<label>${nama}<input class="kolom" type="number" step="${step}" ${attr} data-key="${k}" value="${L[k]}"></label>`;
+      const pilih = (k, nama, daftar) => `<label>${nama}<select ${attr} data-key="${k}">${daftar.map(([v, n]) => `<option value="${v}" ${v === L[k] ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+      $(rekap ? 'form-pengaturan-rekap' : 'form-pengaturan').innerHTML =
+        kel.map(g => `<!-- KELOMPOK TULISAN: ${g.judul} --><details class="grup-set" open><summary><b>${g.judul}</b></summary>${g.isi.map(([k, n]) => teks(k, n)).join('')}</details>`).join('') +
+        `<!-- KELOMPOK: Tampilan umum PDF --><details class="grup-set" open><summary><b>Tampilan umum PDF</b></summary>
+          ${pilih('pdfFamily', 'Jenis huruf', [['helvetica', 'Helvetica (polos)'], ['times', 'Times (berkaki)'], ['courier', 'Courier (mesin tik)']])}
+          ${angka('pdfLebar', 'Lebar halaman (mm, 60 sampai 210)', 1)}
+          ${pilih('pdfTema', 'Garis tabel', [['grid', 'Ada garis'], ['plain', 'Tanpa garis']])}
+          <label>Warna garis<input type="color" ${attr} data-key="pdfWarnaGaris" value="${esc(L.pdfWarnaGaris)}"></label>
+          ${angka('pdfTebalGaris', 'Tebal garis (mm)', 0.05)}
+          ${angka('pdfJarak', 'Jarak antar tabel (mm)', 1)}
+          ${angka('pdfPadding', 'Jarak tulisan ke tepi sel (mm)', 0.1)}
+        </details>` +
+        elem.map(([k, nama, daftar]) => { const g = gaya(k, profil); return `<!-- KELOMPOK GAYA: ${nama} --><details class="grup-set" open><summary><b>Gaya: ${nama}</b></summary>${daftar.map(p => kontrol(k, p, g[p], attr)).join('')}</details>`; }).join('');
+    }
+    // Simpan otomatis setiap kali isian diubah (tiap isian membawa penanda profilnya)
+    function simpanIsian(ev) {
+      const t = ev.target;
+      if (!t.dataset || (!t.dataset.el && !t.dataset.key)) return;
+      const P = profilTulis(t.dataset.profil);
+      const nilai = t.type === 'checkbox' ? t.checked : t.type === 'number' ? (t.value === '' ? '' : Number(t.value)) : t.value;
+      if (t.dataset.el) {
+        const G = P.gaya = P.gaya || {};
+        (G[t.dataset.el] = G[t.dataset.el] || {})[t.dataset.prop] = nilai;
+      } else P[t.dataset.key] = nilai;
+      simpan();
+    }
+    ['form-pengaturan', 'form-pengaturan-rekap'].forEach(id => { $(id).addEventListener('input', simpanIsian); $(id).addEventListener('change', simpanIsian); });
+    // TOMBOL: Kembalikan ke Awal (hanya pengaturan laporan; data lain tidak tersentuh)
+    $('btn-reset-pengaturan').addEventListener('click', ev => dua(ev.target, () => {
+      db.pengaturan = {}; simpan(); renderPengaturan('harian');
+      $('info-pengaturan').textContent = 'Pengaturan laporan harian dikembalikan ke awal.';
+    }));
+    $('btn-reset-rekap').addEventListener('click', ev => dua(ev.target, () => {
+      db.pengaturanRekap = {}; simpan(); renderPengaturan('rekap');
+      $('info-rekap').textContent = 'Pengaturan Rekap dikembalikan ke awal.';
+    }));
+
+    // ===== HALAMAN LAPORAN: susun teks untuk grup WhatsApp =====
+    // Mengisi elemen: #teks-laporan dan #peringatan. Keuntungan TIDAK pernah dimasukkan ke teks ini.
+    function buatTeks(tgl) {
+      const L = pengaturan(), bagian = [];
+      db.penitip.forEach(p => {
+        const r = ringkas(tgl, p);
+        if (!r.hadir || !r.baris.length) return;
+        const g = ['*' + p.nama + '*'];
+        r.baris.forEach(b => g.push('- ' + b.nama + ': ' + L.waNitip + ' ' + b.nitip + ', ' + L.waSisa + ' ' + (b.siap ? b.sisa : '?') + ', ' + L.waLaku + ' ' + b.laku + ' = ' + rp(b.uang)));
+        g.push(L.waTotal + ': ' + rp(r.total));
+        if (r.sebelum !== 0) {
+          g.push(labelSebelum(r.sebelum, r.tglSebelum) + ': ' + rp(Math.abs(r.sebelum)));
+          g.push(L.waHarus + ': ' + rp(r.harus));
+        }
+        if (r.fisik !== null) {
+          g.push(L.waDiterima + ': ' + rp(r.fisik));
+          if (r.saldo !== 0) g.push((r.saldo < 0 ? L.kurang : L.lebih) + ': ' + rp(Math.abs(r.saldo)));
+        }
+        bagian.push(g.join('\n'));
+      });
+      return L.judul + '\n' + namaTanggal(tgl) + '\n\n' + (bagian.join('\n\n') || '(belum ada data)');
+    }
+    function renderLaporan() {
+      $('teks-laporan').value = buatTeks(tglAktif);
+      const belum = [];
+      db.penitip.forEach(p => { const r = ringkas(tglAktif, p); if (r.baris.some(b => !b.siap)) belum.push(p.nama); });
+      $('peringatan').textContent = belum.length ? 'Sisa belum diisi untuk: ' + belum.join(', ') : '';
+      $('info-salin').textContent = '';
+    }
+    // TOMBOL: Salin Laporan
+    $('btn-salin').addEventListener('click', () => {
+      const area = $('teks-laporan');
+      area.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      if (!ok && navigator.clipboard) navigator.clipboard.writeText(area.value);
+      $('info-salin').textContent = 'Tersalin';
+    });
+    // TOMBOL: Bagikan ke WhatsApp
+    $('btn-wa').addEventListener('click', () => {
+      window.open('https://wa.me/?text=' + encodeURIComponent($('teks-laporan').value), '_blank');
+    });
+
+    // ===== HALAMAN LAPORAN: buat PDF =====
+    // Dipakai oleh: tombol Unduh PDF (tab Laporan) dan tombol Pratinjau PDF (tab Pengaturan).
+    // Tulisan, warna, rata, ketebalan, dan kolom diambil dari halaman Pengaturan. Keuntungan TIDAK dimasukkan.
+    function buatDocPDF() {
+      const L = pengaturan();
+      const LEBAR = batas(L.pdfLebar, 60, 210, 110), jarak = batas(L.pdfJarak, 0, 20, 5);
+      // kolom yang tampil: [kunci gaya, judul kolom]
+      const kol = [['kolKue', L.pdfKue], ['kolJumlah', L.pdfJumlah], ['kolSisa', L.pdfSisa], ['kolLaku', L.pdfLaku], ['kolHarga', L.pdfHarga], ['kolUang', L.pdfUang]]
+        .filter(([k]) => gaya(k).tampil !== false);
+      const n = kol.length, gk = kol.map(([k]) => gaya(k));
+      // fungsi menggambar seluruh isi laporan, mengembalikan posisi paling bawah
+      const gambar = doc => {
+        let y = 6;
+        // teks bebas di luar tabel (judul, tanggal, catatan)
+        const tulis = (isi, g) => {
+          if (!isi) return;
+          const ukuran = batas(g.ukuran, 5, 20, 9), x = g.rata === 'tengah' ? LEBAR / 2 : g.rata === 'kanan' ? LEBAR - 8 : 8;
+          const w = hexKeRgb(g.warna);
+          doc.setFont(L.pdfFamily, gayaSel(g).fontStyle); doc.setFontSize(ukuran); doc.setTextColor(w[0], w[1], w[2]);
+          y += ukuran * 0.36;
+          doc.text(String(isi), x, y, { align: RATA[g.rata] || 'left' });
+          y += ukuran * 0.1 + 1.5;
+        };
+        tulis(L.judul, gaya('judul'));
+        if (gaya('tanggal').tampil !== false) tulis(namaTanggal(tglAktif), gaya('tanggal'));
+        y += 2;
+        db.penitip.forEach(p => {
+          const r = ringkas(tglAktif, p);
+          if (!r.hadir || !r.baris.length) return;
+          // isi tabel: satu baris per kue, tiap sel memakai gaya kolomnya
+          const body = r.baris.map(b => {
+            const nilai = { kolKue: b.nama, kolJumlah: b.nitip, kolSisa: b.siap ? b.sisa : '?', kolLaku: b.laku, kolHarga: rp(b.setor), kolUang: rp(b.uang) };
+            return kol.map(([k], i) => ({ content: String(nilai[k]), styles: gayaSel(gk[i]) }));
+          });
+          // baris ringkasan di bawah tabel: tulisan di kiri (digabung), angka di kanan
+          const baris = (kunci, label, nilai) => {
+            const g = gaya(kunci);
+            if (g.tampil === false) return;
+            const sl = gayaSel(g), sn = Object.assign({}, sl, { halign: RATA[g.rataNilai] || 'right' });
+            body.push([{ content: label, colSpan: n - 1, styles: sl }, { content: nilai, styles: sn }]);
+          };
+          baris('rBrt', L.pdfBrt, rp(r.total));
+          if (r.sebelum !== 0) { baris(r.sebelum < 0 ? 'rTbh' : 'rPtg', labelSebelum(r.sebelum, r.tglSebelum), rp(Math.abs(r.sebelum))); baris('rTotal', L.pdfTotal, rp(r.harus)); }
+          if (r.fisik !== null) {
+            baris('rDiterima', L.pdfDiterima, rp(r.fisik));
+            if (r.saldo !== 0) baris(r.saldo < 0 ? 'rKurang' : 'rLebih', r.saldo < 0 ? L.kurang : L.lebih, rp(Math.abs(r.saldo)));
+          }
+          // kepala tabel: baris nama penitip + baris judul kolom (rata ikut kolom masing-masing)
+          const gh = gaya('kepala'), gn = gaya('nama');
+          const kepala = kol.map(([k, judul], i) => ({ content: String(judul), styles: Object.assign(gayaSel(gh), { halign: RATA[gk[i].rata] || 'left' }) }));
+          const lebarKol = {};
+          gk.forEach((g, i) => { const w = batas(g.lebar, 0, 150, 0); if (w > 0) lebarKol[i] = { cellWidth: w }; });
+          doc.autoTable({
+            startY: y, margin: { left: 8, right: 8, bottom: 0 }, theme: 'grid', columnStyles: lebarKol,
+            styles: { font: L.pdfFamily, cellPadding: batas(L.pdfPadding, 0, 5, 1.2), lineColor: hexKeRgb(L.pdfWarnaGaris), lineWidth: L.pdfTema === 'plain' ? 0 : batas(L.pdfTebalGaris, 0.05, 1, 0.1) },
+            head: [[{ content: gn.besar ? p.nama.toUpperCase() : p.nama, colSpan: n, styles: gayaSel(gn) }], kepala],
+            body
+          });
+          y = doc.lastAutoTable.finalY + jarak;
+        });
+        if (L.pdfCatatan) tulis(L.pdfCatatan, gaya('catatan'));
+        return y;
+      };
+      // 1) ukur tinggi isi pada halaman yang sangat tinggi, 2) buat PDF final dengan tinggi sesuai isi (satu halaman utuh, tidak terpotong)
+      const tinggi = Math.max(gambar(new window.jspdf.jsPDF({ unit: 'mm', format: [LEBAR, 5000] })) + 10, 60);
+      const doc = new window.jspdf.jsPDF({ unit: 'mm', format: [LEBAR, tinggi], orientation: tinggi > LEBAR ? 'portrait' : 'landscape' }); // orientasi eksplisit agar lebar tidak tertukar saat isi pendek
+      gambar(doc);
+      return doc;
+    }
+    // TOMBOL: Unduh PDF
+    $('btn-pdf').addEventListener('click', () => {
+      if (!window.jspdf) { $('info-salin').textContent = 'Library PDF belum termuat. Periksa internet lalu muat ulang halaman.'; return; }
+      buatDocPDF().save('laporan-titipan-' + tglAktif + '.pdf');
+      $('info-salin').textContent = 'PDF diunduh.';
+    });
+    // TOMBOL: Pratinjau PDF (halaman Pengaturan). Membuat tautan untuk membuka PDF di tab baru
+    $('btn-pratinjau').addEventListener('click', () => {
+      if (!window.jspdf) { $('info-pengaturan').textContent = 'Library PDF belum termuat. Periksa internet lalu muat ulang halaman.'; return; }
+      const a = $('link-pratinjau');
+      a.href = URL.createObjectURL(buatDocPDF().output('blob'));
+      a.textContent = 'Buka pratinjau PDF (' + namaTanggal(tglAktif) + ')';
+      a.hidden = false;
+      $('info-pengaturan').textContent = 'Pratinjau memakai catatan pada tanggal yang dipilih di bagian atas. Ketuk tautan di atas untuk membukanya.';
+    });
+
+    // ===== HALAMAN KEUNTUNGAN: rekap per penitip, per kue, per hari =====
+    // Mengisi elemen: #hasil-untung. Kue tanpa harga jual dihitung untung Rp 0.
+    function tabel(judul, kepala, baris) {
+      return `<h3>${judul}</h3><div style="overflow-x:auto"><table class="tabel-lap">
+        <tr>${kepala.map(k => '<th>' + k + '</th>').join('')}</tr>
+        ${baris.map(b => '<tr>' + b.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('')}
+      </table></div>`;
+    }
+    function renderUntung() {
+      const dari = $('dari').value, sampai = $('sampai').value;
+      const perP = {}, perK = {}, perH = [];
+      let jual = 0, untung = 0;
+      Object.keys(db.hari).filter(t => t >= dari && t <= sampai).sort().forEach(t => {
+        let hUang = 0, hUntung = 0;
+        db.penitip.forEach(p => {
+          const r = ringkas(t, p);
+          r.baris.forEach(b => {
+            const a = perP[p.nama] = perP[p.nama] || { laku: 0, uang: 0, untung: 0 };
+            a.laku += b.laku; a.uang += b.uang; a.untung += b.untung;
+            const kk = p.nama + ' - ' + b.nama;
+            const x = perK[kk] = perK[kk] || { laku: 0, untung: 0 };
+            x.laku += b.laku; x.untung += b.untung;
+          });
+          if (r.hadir && r.untungSaldo) { const a = perP[p.nama] = perP[p.nama] || { laku: 0, uang: 0, untung: 0 }; a.untung += r.untungSaldo; }
+          hUang += r.total; hUntung += r.untung + r.untungSaldo;
+        });
+        perH.push([namaTanggal(t), rp(hUang), rp(hUntung)]);
+        jual += hUang; untung += hUntung;
+      });
+      $('hasil-untung').innerHTML = `
+        <!-- KARTU TOTAL: penjualan (harga setor) dan keuntungan -->
+        <div class="total-untung">
+          <div>Total harga setor<b>${rp(jual)}</b></div>
+          <div>Total keuntungan<b>${rp(untung)}</b></div>
+        </div>
+        <p style="font-size:13px">Keuntungan sudah memperhitungkan Tbh / Ptg (kurang atau lebih hari lalu), sesuai uang yang benar-benar keluar. Tabel per kue hanya margin penjualan.</p>
+        ${tabel('Per hari', ['Tanggal', 'Setor', 'Untung'], perH)}
+        ${tabel('Per penitip', ['Penitip', 'Laku', 'Setor', 'Untung'], Object.entries(perP).map(([n, a]) => [n, a.laku, rp(a.uang), rp(a.untung)]))}
+        ${tabel('Per kue (paling laku di atas, margin penjualan)', ['Kue', 'Laku', 'Untung'], Object.entries(perK).sort((a, b) => b[1].laku - a[1].laku).map(([n, a]) => [n, a.laku, rp(a.untung)]))}`;
+    }
+    $('dari').addEventListener('change', renderUntung);
+    $('sampai').addEventListener('change', renderUntung);
+
+    // ===== HALAMAN DATA MASTER: ubah penitip, kue, harga =====
+    // Mengisi elemen: #daftar-master
+    function renderMaster() {
+      $('daftar-master').innerHTML = db.penitip.map(p => `
+        <!-- BLOK PENITIP: ${esc(p.nama)} -->
+        <div class="blok-penitip">
+          <!-- Baris nama penitip + tombol hapus -->
+          <div class="blok-nama">
+            <input class="kolom" data-aksi="p-nama" data-p="${p.id}" value="${esc(p.nama)}">
+            <button class="tombol merah" data-aksi="hapus-p" data-p="${p.id}">Hapus</button>
+          </div>
+          <!-- Kotak centang: dibayar per periode (muncul di tab Rekap) -->
+          <label style="display:block;margin:0 0 8px;font-size:14px"><input type="checkbox" data-aksi="p-rekap" data-p="${p.id}" ${p.rekap ? 'checked' : ''}> Dibayar per periode (rekap, bukan harian)</label>
+          <!-- Judul kolom -->
+          <div class="baris-master"><small>Kue</small><small>Setor</small><small>Jual</small><span></span></div>
+          ${p.kue.map(k => `
+          <!-- Baris kue: ${esc(k.nama)} -->
+          <div class="baris-master">
+            <input class="kolom" data-aksi="k-nama" data-p="${p.id}" data-k="${k.id}" value="${esc(k.nama)}">
+            <input class="kolom" type="number" inputmode="numeric" data-aksi="k-setor" data-p="${p.id}" data-k="${k.id}" value="${k.setor}">
+            <input class="kolom" type="number" inputmode="numeric" data-aksi="k-jual" data-p="${p.id}" data-k="${k.id}" value="${k.jual || ''}">
+            <button class="tombol merah" data-aksi="hapus-k" data-p="${p.id}" data-k="${k.id}">x</button>
+          </div>`).join('')}
+          <!-- Tombol tambah kue -->
+          <button class="tombol abu" data-aksi="tambah-k" data-p="${p.id}">+ Tambah Kue</button>
+        </div>`).join('');
+    }
+    // Ketik di kolom master: simpan langsung tanpa menggambar ulang
+    $('daftar-master').addEventListener('input', ev => {
+      const t = ev.target, a = t.dataset.aksi, p = cariPenitip(t.dataset.p);
+      if (!p) return;
+      const k = p.kue.find(x => x.id === t.dataset.k);
+      if (a === 'p-nama') p.nama = t.value;
+      else if (a === 'p-rekap') p.rekap = t.checked;
+      else if (k && a === 'k-nama') k.nama = t.value;
+      else if (k && a === 'k-setor') k.setor = Number(t.value) || 0;
+      else if (k && a === 'k-jual') k.jual = Number(t.value) || 0;
+      simpan();
+    });
+    // Tombol di master. Tombol hapus harus ditekan dua kali (tombol berubah jadi "Yakin?")
+    function dua(btn, aksi) {
+      if (btn.dataset.yakin) return aksi();
+      const awal = btn.textContent;
+      btn.dataset.yakin = 1; btn.textContent = 'Yakin?';
+      setTimeout(() => { delete btn.dataset.yakin; btn.textContent = awal; }, 3000);
+    }
+    $('daftar-master').addEventListener('click', ev => {
+      const t = ev.target, a = t.dataset.aksi, pid = t.dataset.p, p = cariPenitip(pid);
+      if (!a || !p) return;
+      if (a === 'tambah-k') { p.kue.push({ id: uid(), nama: 'Kue baru', setor: 1700, jual: 0 }); simpan(); renderMaster(); }
+      if (a === 'hapus-k') dua(t, () => { p.kue = p.kue.filter(k => k.id !== t.dataset.k); simpan(); renderMaster(); });
+      if (a === 'hapus-p') dua(t, () => { db.penitip = db.penitip.filter(x => x.id !== pid); simpan(); renderMaster(); });
+    });
+    // TOMBOL: Tambah Penitip
+    $('btn-tambah-penitip').addEventListener('click', () => {
+      db.penitip.push({ id: uid(), nama: 'Penitip baru', kue: [{ id: uid(), nama: 'Kue baru', setor: 1700, jual: 0 }] });
+      simpan(); renderMaster();
+    });
+
+    // ===== HALAMAN CADANGAN: unduh dan pulihkan per bagian =====
+    // Dipakai oleh: tombol Unduh / Pulihkan di #hal-cadangan. Format file: { jenis, data }.
+    const ADA_OBJEK = d => d && typeof d === 'object' && !Array.isArray(d);
+    const CAD = {
+      harian:     { nama: 'Catatan Harian',      ambil: () => db.hari,           pasang: d => { db.hari = d; },       cek: ADA_OBJEK },
+      pengaturan: { nama: 'Pengaturan Laporan',  ambil: () => db.pengaturan || {}, pasang: d => { db.pengaturan = d; }, cek: ADA_OBJEK },
+      master:     { nama: 'Data Master',         ambil: () => db.penitip,        pasang: d => { db.penitip = d; },    cek: d => Array.isArray(d) },
+      semua:      { nama: 'Semuanya',            ambil: () => db,                pasang: d => { db = d; },            cek: d => ADA_OBJEK(d) && Array.isArray(d.penitip) && ADA_OBJEK(d.hari) }
+    };
+    let jenisPulih = null, salinanSebelum = null;
+
+    // Susun isi file cadangan satu bagian
+    function isiCadangan(jenis) {
+      return JSON.stringify({ jenis, aplikasi: 'catatan-titipan-kue', dibuat: new Date().toISOString(), data: CAD[jenis].ambil(), periode: jenis === 'harian' ? (db.periode || {}) : undefined, pengaturanRekap: jenis === 'pengaturan' ? bacaProfil('rekap') : undefined });
+    }
+    // Pulihkan satu bagian dari teks file; mengembalikan pesan hasil
+    function pulihkan(jenis, teks) {
+      let isi;
+      try { isi = JSON.parse(teks); } catch (e) { return 'File tidak valid.'; }
+      let jenisFile, data;
+      if (ADA_OBJEK(isi) && isi.jenis && 'data' in isi) { jenisFile = isi.jenis; data = isi.data; }
+      else if (ADA_OBJEK(isi) && Array.isArray(isi.penitip) && isi.hari) { jenisFile = 'semua'; data = isi; } // cadangan format lama = Semuanya
+      else return 'File tidak valid.';
+      if (jenisFile !== jenis) return 'File ini cadangan "' + (CAD[jenisFile] ? CAD[jenisFile].nama : 'tidak dikenal') + '", bukan "' + CAD[jenis].nama + '". Gunakan tombol Pulihkan di bagian yang sesuai.';
+      if (!CAD[jenis].cek(data)) return 'Isi file tidak sesuai untuk bagian ini.';
+      salinanSebelum = JSON.stringify(db); // simpan data sebelumnya agar bisa dibatalkan
+      CAD[jenis].pasang(data);
+      if (jenis === 'harian' && ADA_OBJEK(isi.periode)) db.periode = isi.periode; // penutupan periode ikut Catatan Harian
+      if (jenis === 'pengaturan' && ADA_OBJEK(isi.pengaturanRekap)) db.pengaturanRekap = isi.pengaturanRekap; // pengaturan Rekap ikut Pengaturan Laporan
+      simpan(); tampilkanSemua();
+      $('btn-batal-pulih').hidden = false;
+      return CAD[jenis].nama + ' berhasil dipulihkan. Jika salah, tekan Batalkan Pemulihan Terakhir.';
+    }
+    // TOMBOL: Unduh dan Pulihkan di tiap blok
+    $('hal-cadangan').addEventListener('click', ev => {
+      const jenis = ev.target.dataset.cad;
+      if (!jenis) return;
+      if (ev.target.dataset.aksi === 'unduh') {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([isiCadangan(jenis)], { type: 'application/json' }));
+        a.download = 'cadangan-' + jenis + '-' + hariIni() + '.json';
+        a.click();
+        $('info-cadangan').textContent = 'Cadangan ' + CAD[jenis].nama + ' diunduh.';
+      } else { jenisPulih = jenis; $('file-impor').click(); }
+    });
+    // Setelah file dipilih
+    $('file-impor').addEventListener('change', ev => {
+      const berkas = ev.target.files[0];
+      if (!berkas || !jenisPulih) return;
+      const fr = new FileReader();
+      fr.onload = () => { $('info-cadangan').textContent = pulihkan(jenisPulih, fr.result); };
+      fr.readAsText(berkas);
+      ev.target.value = ''; // supaya file yang sama bisa dipilih lagi
+    });
+    // TOMBOL: Batalkan Pemulihan Terakhir
+    $('btn-batal-pulih').addEventListener('click', () => {
+      if (!salinanSebelum) return;
+      db = JSON.parse(salinanSebelum); salinanSebelum = null;
+      simpan(); tampilkanSemua();
+      $('btn-batal-pulih').hidden = true;
+      $('info-cadangan').textContent = 'Pemulihan dibatalkan. Data kembali seperti sebelumnya.';
+    });
+    // TOMBOL: Hapus Tanggal Ini (hanya satu tanggal yang dipilih; Data Master tetap aman)
+    $('btn-hapus-tgl').addEventListener('click', ev => {
+      const t = $('tgl-hapus').value;
+      if (!t) { $('info-cadangan').textContent = 'Pilih tanggal dulu.'; return; }
+      if (!db.hari[t]) { $('info-cadangan').textContent = 'Tidak ada catatan pada ' + namaTanggal(t) + '.'; return; }
+      dua(ev.target, () => {
+        delete db.hari[t]; simpan(); tampilkanSemua();
+        $('info-cadangan').textContent = 'Catatan ' + namaTanggal(t) + ' dihapus. Data Master tetap ada.';
+      });
+    });
+    // TOMBOL: Hapus Semua Tanggal (semua catatan harian; Data Master tetap aman)
+    $('btn-hapus-semua').addEventListener('click', ev => dua(ev.target, () => {
+      db.hari = {}; db.periode = {}; simpan(); tampilkanSemua();
+      $('info-cadangan').textContent = 'Semua catatan harian dihapus. Data Master tetap ada.';
+    }));
+    // Teks daftar tanggal yang punya catatan, di bawah judul "Hapus Catatan Harian"
+    function isiDaftarTgl() {
+      const ada = Object.keys(db.hari).filter(t => Object.values(db.hari[t]).some(e => e.hadir)).sort();
+      $('daftar-tgl-hapus').textContent = ada.length
+        ? 'Tanggal yang ada catatan: ' + ada.map(t => new Date(t + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })).join(', ')
+        : 'Belum ada catatan harian.';
+    }
+
+    // ===== HALAMAN GANTUNGAN: saldo kurang / lebih yang belum selesai =====
+    // Mengisi elemen: #hasil-gantungan. Hanya penitip yang uang fisiknya pernah diisi yang dihitung.
+    // Total uang kue satu hari tanpa saldo (sama dengan hitungan di ringkas)
+    function totalMurni(e) {
+      let total = 0;
+      Object.values(e.kue || {}).forEach(c => { if (c && c.nitip > 0 && c.sisa !== '' && c.sisa !== undefined) total += (c.nitip - c.sisa) * c.setor; });
+      return total;
+    }
+    // Daftar penitip yang saldo terakhirnya bukan nol, beserta rantai tanggal sejak saldo itu mulai muncul
+    function hitungGantungan() {
+      const hasil = [];
+      db.penitip.forEach(p => {
+        const tgl = Object.keys(db.hari).filter(t => { const e = db.hari[t][p.id]; return e && e.hadir && e.fisik !== '' && e.fisik != null; }).sort();
+        let s = 0; const urut = [];
+        tgl.forEach(t => { const e = db.hari[t][p.id]; s = e.fisik - (totalMurni(e) - s); urut.push({ tgl: t, saldo: s }); });
+        if (!urut.length || urut[urut.length - 1].saldo === 0) return; // belum pernah nitip, atau sudah Pas
+        const rantai = [];
+        for (let i = urut.length - 1; i >= 0 && urut[i].saldo !== 0; i--) rantai.unshift(urut[i]);
+        hasil.push({ nama: p.nama, saldo: urut[urut.length - 1].saldo, rantai });
+      });
+      return hasil;
+    }
+    function renderGantungan() {
+      const batasHari = Number($('batas-hari').value) || 7, hariIniTeks = hariIni();
+      const lalu = t => Math.round((new Date(hariIniTeks + 'T00:00:00') - new Date(t + 'T00:00:00')) / 86400000);
+      const daftar = hitungGantungan().sort((a, b) => a.rantai[a.rantai.length - 1].tgl.localeCompare(b.rantai[b.rantai.length - 1].tgl));
+      let kurang = 0, lebih = 0;
+      daftar.forEach(d => { if (d.saldo < 0) kurang -= d.saldo; else lebih += d.saldo; });
+      const kartu = d => {
+        const akhir = d.rantai[d.rantai.length - 1], hari = lalu(akhir.tgl);
+        return `<!-- KARTU GANTUNGAN: ${esc(d.nama)} -->
+        <div class="kartu-gantung">
+          <div class="judul"><span>${esc(d.nama)}</span><span class="${kelasSaldo(d.saldo)}">${labelSaldo(d.saldo)}</span></div>
+          <small>Terakhir nitip: ${labelTgl(akhir.tgl)} <span class="${hari >= batasHari ? 'lama' : ''}">(${hari} hari lalu)</span></small>
+          <small>Saldo mulai muncul: ${labelTgl(d.rantai[0].tgl)}</small>
+          <table class="tabel-lap"><tr><th>Tanggal</th><th>Saldo setelah hari itu</th></tr>
+            ${d.rantai.map(r => `<tr><td>${labelTgl(r.tgl)}</td><td class="${kelasSaldo(r.saldo)}">${labelSaldo(r.saldo)}</td></tr>`).join('')}
+          </table>
+        </div>`;
+      };
+      $('hasil-gantungan').innerHTML = `
+        <!-- KOTAK TOTAL: seluruh kurang dan lebih yang menggantung -->
+        <div class="total-untung">
+          <div>Total kurang<b class="minus">${rp(kurang)}</b></div>
+          <div>Total lebih<b class="plus">${rp(lebih)}</b></div>
+        </div>
+        ${daftar.length ? daftar.map(kartu).join('') : '<p>Tidak ada saldo yang menggantung. Semua penitip Pas.</p>'}`;
+    }
+    $('batas-hari').addEventListener('input', renderGantungan);
+
+    // ===== HALAMAN REKAP PERIODE: penitip yang uangnya dikumpulkan di kotak lalu diambil sewaktu-waktu =====
+    // Tiap hari uang fisik (yang dimasukkan ke kotak) diisi di Input Harian seperti penitip lain; kurang / lebih terbawa ke hari berikutnya.
+    // Tab Rekap hanya mengelompokkan hari-hari itu menjadi periode. Input Harian dan laporan harian (PDF / WhatsApp) tidak berubah.
+    // Tulisan dan gaya PDF / WhatsApp rekap memakai pengaturan 'rekap' (terpisah dari laporan harian).
+    // Penutupan periode disimpan di db.periode[idPenitip] = [{ sampai: tanggal terakhir yang ikut periode }]
+    let rekapLihat = null, rekapSaatIni = null; // nomor periode yang dilihat (null = berjalan) dan data yang sedang tampil
+
+    // Susun semua periode satu penitip: yang sudah ditutup + yang berjalan
+    function riwayatRekap(p) {
+      const tutup = ((db.periode || {})[p.id] || []).slice().sort((a, b) => a.sampai.localeCompare(b.sampai));
+      const tglAda = Object.keys(db.hari).filter(t => db.hari[t][p.id] && db.hari[t][p.id].hadir).sort();
+      const hasil = []; let mulai = '';
+      const buat = sampai => {
+        const rinci = tglAda.filter(t => t > mulai && (!sampai || t <= sampai)).map(t => ({ tgl: t, r: ringkas(t, p) })).filter(x => x.r.baris.length);
+        const total = rinci.reduce((a, x) => a + x.r.total, 0), kotak = rinci.reduce((a, x) => a + (x.r.fisik || 0), 0);
+        const laku = rinci.reduce((a, x) => a + x.r.baris.reduce((b, k) => b + (k.siap ? k.laku : 0), 0), 0); // jumlah kue laku seluruh periode
+        const awal = rinci.length ? rinci[0].r.sebelum : 0, tglAwal = rinci.length ? rinci[0].r.tglSebelum : null;
+        let akhir = awal; rinci.forEach(x => { if (x.r.fisik !== null) akhir = x.r.saldo; }); // saldo yang dibawa ke periode berikutnya
+        return { rinci, sampai, total, kotak, laku, awal, tglAwal, akhir, kosong: rinci.filter(x => x.r.fisik === null).map(x => x.tgl) };
+      };
+      tutup.forEach(c => { hasil.push(buat(c.sampai)); mulai = c.sampai; });
+      hasil.push(buat(null)); // periode berjalan
+      return hasil;
+    }
+    const rentangRekap = it => (it.rinci.length ? labelTgl(it.rinci[0].tgl) : '-') + ' - ' + (it.sampai ? labelTgl(it.sampai) : 'sekarang');
+    const judulRekap = (it, p) => pengaturan('rekap').rkJudul.replace('{nama}', p.nama).replace('{periode}', rentangRekap(it));
+
+    // Baris ringkasan satu hari: kunci = gaya PDF, pdf / wa / layar = tulisan di tiap tempat
+    function barisHariRekap(r) {
+      const L = pengaturan('rekap'), e = [];
+      e.push({ kunci: 'rBrt', pdf: L.pdfBrt, wa: L.waTotal, layar: L.pdfBrt, nilai: rp(r.total), css: '' });
+      if (r.sebelum !== 0) {
+        const lb = labelSebelum(r.sebelum, r.tglSebelum, 'rekap');
+        e.push({ kunci: r.sebelum < 0 ? 'rTbh' : 'rPtg', pdf: lb, wa: lb, layar: lb, nilai: rp(Math.abs(r.sebelum)), css: '' });
+        e.push({ kunci: 'rTotal', pdf: L.pdfTotal, wa: L.waHarus, layar: L.pdfTotal, nilai: rp(r.harus), css: '' });
+      }
+      if (r.fisik === null) e.push({ kunci: 'rDiterima', pdf: L.pdfDiterima, wa: L.waDiterima, layar: L.pdfDiterima, nilai: 'belum diisi', css: 'minus' });
+      else {
+        e.push({ kunci: 'rDiterima', pdf: L.pdfDiterima, wa: L.waDiterima, layar: L.pdfDiterima, nilai: rp(r.fisik), css: '' });
+        if (r.saldo !== 0) { const kr = r.saldo < 0; e.push({ kunci: kr ? 'rKurang' : 'rLebih', pdf: kr ? L.kurang : L.lebih, wa: (kr ? L.kurang : L.lebih) + ' (ke hari berikutnya)', layar: (kr ? L.kurang : L.lebih) + ' (ke hari berikutnya)', nilai: rp(Math.abs(r.saldo)), css: kelasSaldo(r.saldo) }); }
+      }
+      return e;
+    }
+    // Baris ringkasan seluruh periode (Total laku, Total periode, saldo awal, Total di kotak, saldo akhir)
+    function barisPeriodeRekap(it) {
+      const L = pengaturan('rekap'), e = [];
+      e.push({ kunci: 'pLaku', pdf: L.rkLaku, wa: L.rkLaku, layar: L.rkLaku, nilai: String(it.laku), css: '' });
+      e.push({ kunci: 'pPeriode', pdf: L.rkPeriode, wa: L.rkPeriode, layar: L.rkPeriode, nilai: rp(it.total), css: '' });
+      if (it.awal !== 0) { const lb = labelSebelum(it.awal, it.tglAwal, 'rekap'); e.push({ kunci: it.awal < 0 ? 'pAwalTbh' : 'pAwalPtg', pdf: lb, wa: lb, layar: lb, nilai: rp(Math.abs(it.awal)), css: '' }); }
+      e.push({ kunci: 'pKotak', pdf: L.rkKotak, wa: L.rkKotak, layar: L.rkKotak, nilai: rp(it.kotak), css: '' });
+      if (it.akhir !== 0) { const kr = it.akhir < 0, lb = kr ? L.rkKurangAkhir : L.rkLebihAkhir; e.push({ kunci: kr ? 'pAkhirKurang' : 'pAkhirLebih', pdf: lb, wa: lb, layar: lb, nilai: rp(Math.abs(it.akhir)), css: kelasSaldo(it.akhir) }); }
+      return e;
+    }
+
+    // Teks rekap untuk WhatsApp (memakai tulisan dari pengaturan Rekap)
+    function teksRekap(it, p) {
+      const L = pengaturan('rekap'), g = [judulRekap(it, p), ''];
+      it.rinci.forEach(x => {
+        g.push('*' + labelTgl(x.tgl) + '*');
+        x.r.baris.forEach(k => g.push('- ' + k.nama + ': ' + L.waNitip + ' ' + k.nitip + ', ' + L.waSisa + ' ' + (k.siap ? k.sisa : '?') + ', ' + L.waLaku + ' ' + k.laku + ' = ' + rp(k.uang)));
+        barisHariRekap(x.r).forEach(b => g.push(b.wa + ': ' + b.nilai));
+        g.push('');
+      });
+      barisPeriodeRekap(it).forEach(b => g.push(b.wa + ': ' + b.nilai));
+      return g.join('\n');
+    }
+
+    // PDF rekap: satu halaman setinggi isi; gaya, tulisan, dan warna mengikuti pengaturan Rekap
+    function buatDocRekap(it, p) {
+      const L = pengaturan('rekap'), LEBAR = batas(L.pdfLebar, 60, 210, 110);
+      const gambar = doc => {
+        const kolom = ['kolTanggal', 'kolKue', 'kolJumlah', 'kolSisa', 'kolLaku', 'kolUang'].map(k => gaya(k, 'rekap')); // gaya tiap kolom
+        const body = [];
+        const baris = b => {
+          const g = gaya(b.kunci, 'rekap');
+          if (g.tampil === false) return;
+          const sl = gayaSel(g), sn = Object.assign({}, sl, { halign: RATA[g.rataNilai] || 'right' });
+          body.push([{ content: b.pdf, colSpan: 5, styles: sl }, { content: b.nilai, styles: sn }]);
+        };
+        it.rinci.forEach(x => {
+          x.r.baris.forEach(k => {
+            const nilai = [labelTgl(x.tgl), k.nama, k.nitip, k.siap ? k.sisa : '?', k.laku, rp(k.uang)];
+            body.push(nilai.map((v, i) => ({ content: String(v), styles: gayaSel(kolom[i]) })));
+          });
+          barisHariRekap(x.r).forEach(baris);
+        });
+        barisPeriodeRekap(it).forEach(baris);
+        const gh = gaya('kepala', 'rekap');
+        const kepala = [L.rkTanggal, L.pdfKue, L.pdfJumlah, L.pdfSisa, L.pdfLaku, L.pdfUang].map((j, i) => ({ content: String(j), styles: Object.assign(gayaSel(gh), { halign: RATA[kolom[i].rata] || 'left' }) }));
+        const lebarKol = {};
+        kolom.forEach((g, i) => { const w = batas(g.lebar, 0, 150, 0); if (w > 0) lebarKol[i] = { cellWidth: w }; });
+        doc.autoTable({
+          startY: 6, margin: { left: 8, right: 8, bottom: 0 }, theme: 'grid', columnStyles: lebarKol,
+          styles: { font: L.pdfFamily, cellPadding: batas(L.pdfPadding, 0, 5, 1.2), lineColor: hexKeRgb(L.pdfWarnaGaris), lineWidth: L.pdfTema === 'plain' ? 0 : batas(L.pdfTebalGaris, 0.05, 1, 0.1) },
+          head: [[{ content: judulRekap(it, p), colSpan: 6, styles: gayaSel(gaya('nama', 'rekap')) }], kepala],
+          body
+        });
+        let y = doc.lastAutoTable.finalY;
+        if (L.pdfCatatan) { // catatan di bagian bawah
+          const g = gaya('catatan', 'rekap'), ukuran = batas(g.ukuran, 5, 20, 8), w = hexKeRgb(g.warna);
+          doc.setFont(L.pdfFamily, gayaSel(g).fontStyle); doc.setFontSize(ukuran); doc.setTextColor(w[0], w[1], w[2]);
+          y += 2 + ukuran * 0.36;
+          doc.text(String(L.pdfCatatan), g.rata === 'tengah' ? LEBAR / 2 : g.rata === 'kanan' ? LEBAR - 8 : 8, y, { align: RATA[g.rata] || 'left' });
+        }
+        return y;
+      };
+      const tinggi = Math.max(gambar(new window.jspdf.jsPDF({ unit: 'mm', format: [LEBAR, 5000] })) + 10, 60);
+      const doc = new window.jspdf.jsPDF({ unit: 'mm', format: [LEBAR, tinggi], orientation: tinggi > LEBAR ? 'portrait' : 'landscape' });
+      gambar(doc);
+      return doc;
+    }
+
+    // Gambar halaman Rekap. Mengisi elemen: #rekap-penitip dan #hasil-rekap
+    function renderRekap() {
+      const daftar = db.penitip.filter(p => p.rekap), pilih = $('rekap-penitip'), terpilih = pilih.value;
+      pilih.innerHTML = daftar.map(p => `<option value="${p.id}" ${p.id === terpilih ? 'selected' : ''}>${esc(p.nama)}</option>`).join('');
+      if (!daftar.length) { $('hasil-rekap').innerHTML = '<p>Belum ada penitip yang dibayar per periode. Centang "Dibayar per periode" pada penitipnya di tab Data Master.</p>'; rekapSaatIni = null; return; }
+      const p = cariPenitip(pilih.value) || daftar[0], L = pengaturan('rekap');
+      const riw = riwayatRekap(p), akhir = riw.length - 1;
+      const idx = (rekapLihat === null || rekapLihat > akhir) ? akhir : rekapLihat, it = riw[idx], berjalan = idx === akhir;
+      rekapSaatIni = { it, p };
+      const tglTerakhir = it.rinci.length ? it.rinci[it.rinci.length - 1].tgl : '';
+      const baris6 = b => `<tr class="rekap-hari"><td colspan="5">${esc(b.layar)}</td><td class="${b.css}">${b.nilai}</td></tr>`;
+      $('hasil-rekap').innerHTML = `
+        <!-- PILIHAN PERIODE: tiap periode yang sudah ditutup + periode berjalan -->
+        <div>${riw.map((x, i) => `<button class="tombol ${i === idx ? '' : 'abu'}" data-aksi="lihat" data-i="${i}">${i === akhir ? 'Berjalan' : 'Periode ' + (i + 1)}</button>`).join('')}</div>
+        <h3>${berjalan ? 'Periode berjalan' : 'Periode ' + (idx + 1)}: ${rentangRekap(it)}</h3>
+        <!-- PERINGATAN: hari yang uang kotaknya belum diisi -->
+        <div class="peringatan">${it.kosong.length ? 'Uang fisik (masuk kotak) belum diisi pada: ' + it.kosong.map(labelTgl).join(', ') : ''}</div>
+        <!-- TABEL RINCIAN: tiap hari, tiap kue, dan uang yang masuk kotak -->
+        <div style="overflow-x:auto"><table class="tabel-lap">
+          <tr><th>${esc(L.rkTanggal)}</th><th>${esc(L.pdfKue)}</th><th>${esc(L.pdfJumlah)}</th><th>${esc(L.pdfSisa)}</th><th>${esc(L.pdfLaku)}</th><th>${esc(L.pdfUang)}</th></tr>
+          ${it.rinci.length ? it.rinci.map(x => x.r.baris.map(k => `<tr><td>${labelTgl(x.tgl)}</td><td>${esc(k.nama)}</td><td>${k.nitip}</td><td>${k.siap ? k.sisa : '?'}</td><td>${k.laku}</td><td>${rp(k.uang)}</td></tr>`).join('') + barisHariRekap(x.r).map(baris6).join('')).join('') : '<tr><td colspan="6">Belum ada catatan pada periode ini.</td></tr>'}
+        </table></div>
+        <!-- RINGKASAN PERIODE -->
+        <h3>Ringkasan periode</h3>
+        <div style="overflow-x:auto"><table class="tabel-lap">${barisPeriodeRekap(it).map(b => `<tr><td>${esc(b.layar)}</td><td class="${b.css}">${b.nilai}</td></tr>`).join('')}</table></div>
+        ${berjalan ? `
+        <!-- FORM TUTUP PERIODE: dipakai saat penitip mengambil semua kotak -->
+        <div class="rekap-form">
+          <b>Tutup periode (saat penitip mengambil kotaknya)</b>
+          <label>Tanggal terakhir yang ikut periode ini <input type="date" id="rekap-sampai" class="kolom" value="${tglTerakhir}"></label>
+          <small>Kurang atau lebih terakhir otomatis dibawa ke periode berikutnya. Uang kotak sudah tercatat tiap hari, jadi tidak ada yang perlu diisi lagi.</small><br>
+          <button class="tombol" data-aksi="tutup">Tutup Periode</button>
+        </div>` : (idx === akhir - 1 ? '<button class="tombol merah" data-aksi="batal">Batalkan Penutupan Ini</button>' : '')}
+        <!-- TOMBOL: Salin Rekap, Pratinjau PDF Rekap, dan Unduh PDF Rekap -->
+        <button class="tombol" data-aksi="salin">Salin Rekap</button>
+        <button class="tombol" data-aksi="pratinjau">Pratinjau PDF Rekap</button>
+        <button class="tombol" data-aksi="pdf">Unduh PDF Rekap</button>`;
+    }
+    $('rekap-penitip').addEventListener('change', () => { rekapLihat = null; renderRekap(); });
+    $('hasil-rekap').addEventListener('click', ev => {
+      const t = ev.target, a = t.dataset.aksi, info = txt => { $('info-rekap').textContent = txt; };
+      if (!a || !rekapSaatIni) return;
+      const { it, p } = rekapSaatIni;
+      if (a === 'lihat') { rekapLihat = Number(t.dataset.i); renderRekap(); info(''); }
+      else if (a === 'salin') {
+        const area = document.createElement('textarea'); area.value = teksRekap(it, p); document.body.appendChild(area); area.select();
+        let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(area);
+        if (!ok && navigator.clipboard) navigator.clipboard.writeText(area.value);
+        info('Rekap tersalin. Tempel di grup WhatsApp.');
+      } else if (a === 'pdf') {
+        if (!window.jspdf) return info('Library PDF belum termuat. Periksa internet lalu muat ulang halaman.');
+        buatDocRekap(it, p).save('rekap-' + p.nama.replace(/\s+/g, '-') + '-' + (it.sampai || 'berjalan') + '.pdf');
+        info('PDF rekap diunduh.');
+      } else if (a === 'pratinjau') {
+        if (!window.jspdf) return info('Library PDF belum termuat. Periksa internet lalu muat ulang halaman.');
+        const tautan = $('link-pratinjau-rekap');
+        tautan.href = URL.createObjectURL(buatDocRekap(it, p).output('blob'));
+        tautan.textContent = 'Buka pratinjau PDF Rekap'; tautan.hidden = false;
+        info('Ketuk tautan "Buka pratinjau PDF Rekap" di bawah untuk melihat hasilnya.');
+      } else if (a === 'tutup') {
+        const sampai = $('rekap-sampai').value;
+        const riw = riwayatRekap(p), terakhir = riw.length > 1 ? riw[riw.length - 2].sampai : '';
+        if (!sampai) return info('Pilih tanggal terakhir yang ikut periode ini.');
+        if (terakhir && sampai <= terakhir) return info('Tanggalnya harus setelah penutupan sebelumnya (' + labelTgl(terakhir) + ').');
+        if (!riw[riw.length - 1].rinci.some(x => x.tgl <= sampai)) return info('Belum ada catatan sampai tanggal itu.');
+        dua(t, () => {
+          db.periode = db.periode || {};
+          (db.periode[p.id] = db.periode[p.id] || []).push({ sampai });
+          simpan(); rekapLihat = null; renderRekap();
+          info('Periode ditutup. Kurang atau lebih terakhir dibawa ke periode berikutnya.');
+        });
+      } else if (a === 'batal') {
+        dua(t, () => {
+          const daftar = ((db.periode || {})[p.id] || []).slice().sort((x, y) => x.sampai.localeCompare(y.sampai));
+          daftar.pop(); db.periode[p.id] = daftar;
+          simpan(); rekapLihat = null; renderRekap();
+          info('Penutupan terakhir dibatalkan.');
+        });
+      }
+    });
+
+    // ===== SINKRON GOOGLE SHEET =====
+    // Dipakai oleh: kotak "Simpan ke Google Sheet" di tab Cadangan dan teks #status-sheet di header.
+    // Alamat dan kunci disimpan di browser tiap perangkat (tidak ada di kode ini).
+    const KUNCI_CFG = 'pengaturanSheet';
+    // versiSheet = nomor versi data di Sheet yang diketahui perangkat ini
+    // dasar      = salinan data saat terakhir sama dengan Sheet (dipakai untuk menggabungkan perubahan)
+    // kotor      = true jika ada perubahan di perangkat ini yang belum sampai ke Sheet
+    let cfg = null, versiSheet = null, dasar = null, kotor = false, timerDorong = null, adaTunda = false, sedangDorong = false, tanpaVersi = false, terakhirKetik = 0;
+    try { cfg = JSON.parse(localStorage.getItem(KUNCI_CFG)); } catch (e) {}
+
+    function status(teks, galat) {
+      $('status-sheet').textContent = teks;
+      $('status-sheet').style.color = galat ? '#fecaca' : '#d1fae5';
+    }
+    // Kirim permintaan ke Apps Script
+    async function panggil(aksi, tambahan) {
+      const res = await fetch(cfg.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ kunci: cfg.kunci, aksi, ...tambahan })
+      });
+      return res.json();
+    }
+    const jam = () => new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const simpanLokal = () => { try { localStorage.setItem(KUNCI, JSON.stringify(db)); } catch (e) {} };
+    // Ganti data di perangkat dengan data dari Sheet
+    function terapkan(data, versi) {
+      db = data; versiSheet = versi; dasar = JSON.stringify(data); kotor = false;
+      simpanLokal(); tampilkanSemua();
+    }
+    // Gabungkan perubahan di perangkat ini (lokal) dengan data terbaru di Sheet (server).
+    // Master dan pengaturan: dipakai milik perangkat ini jika memang diubah di sini.
+    // Catatan harian: dibandingkan per tanggal dan per penitip, jadi perubahan dua perangkat di bagian berbeda sama-sama selamat.
+    function gabung(basis, lokal, server) {
+      const D = JSON.parse(basis), hasil = JSON.parse(JSON.stringify(server));
+      const sama = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      ['penitip', 'pengaturan', 'pengaturanRekap', 'periode'].forEach(k => { if (!sama(lokal[k], D[k])) hasil[k] = lokal[k]; });
+      const tgl = new Set([...Object.keys(D.hari || {}), ...Object.keys(lokal.hari || {})]);
+      tgl.forEach(t => {
+        const pid = new Set([...Object.keys((D.hari || {})[t] || {}), ...Object.keys((lokal.hari || {})[t] || {})]);
+        pid.forEach(p => {
+          const awal = ((D.hari || {})[t] || {})[p], kini = ((lokal.hari || {})[t] || {})[p];
+          if (sama(awal, kini)) return; // tidak diubah di perangkat ini
+          hasil.hari = hasil.hari || {}; hasil.hari[t] = hasil.hari[t] || {};
+          if (kini === undefined) delete hasil.hari[t][p]; else hasil.hari[t][p] = kini;
+          if (!Object.keys(hasil.hari[t]).length) delete hasil.hari[t];
+        });
+      });
+      return hasil;
+    }
+    // Baca data dari Sheet (saat halaman dibuka dan saat menekan Hubungkan)
+    async function tarik() {
+      if (!cfg) return;
+      if (kotor) { await dorongSekarang(); return; } // ada perubahan yang belum terkirim: kirim dulu, jangan ditimpa
+      status('Sheet: membaca...');
+      try {
+        const r = await panggil('baca');
+        if (!r.ok) return status('Sheet: ' + r.pesan, true);
+        if (r.data) { terapkan(r.data, r.versi); status('Sheet: terhubung, data dimuat ' + jam()); }
+        else { versiSheet = r.versi; dasar = null; kotor = true; await dorongSekarang(); } // Sheet masih kosong: kirim data perangkat ini
+      } catch (e) { status('Sheet: gagal terhubung. Data tetap tersimpan di perangkat ini.', true); }
+    }
+    // Cek diam-diam apakah perangkat lain sudah mengubah data. Dipanggil berkala, saat kembali ke halaman, dan saat internet pulih.
+    async function cekBaru() {
+      if (!cfg || document.hidden || sedangDorong || kotor || adaTunda) return;
+      if (Date.now() - terakhirKetik < 5000) return; // jangan mengganggu saat sedang mengetik
+      try {
+        let versi, data;
+        if (!tanpaVersi) {
+          const r = await panggil('versi');
+          if (r.ok && typeof r.versi === 'number') versi = r.versi;
+          else if (r.pesan === 'Aksi tidak dikenal') tanpaVersi = true; // Code.gs lama: pakai cara baca penuh
+        }
+        if (versi === undefined) { const r = await panggil('baca'); if (!r.ok) return; versi = r.versi; data = r.data; }
+        if (versi === versiSheet || kotor || sedangDorong || adaTunda) return;
+        if (!data) { const r = await panggil('baca'); if (!r.ok) return; versi = r.versi; data = r.data; }
+        if (data) { terapkan(data, versi); status('Sheet: diperbarui dari perangkat lain ' + jam()); }
+      } catch (e) { /* diam: akan dicoba lagi */ }
+    }
+    function segarkan() { if (!cfg) return; if (versiSheet === null) tarik(); else cekBaru(); }
+    // Tunggu 1,5 detik setelah ketikan terakhir, baru kirim ke Sheet
+    function jadwalDorong() {
+      kotor = true;
+      if (!cfg || versiSheet === null) return;
+      adaTunda = true; clearTimeout(timerDorong);
+      status('Sheet: menyimpan...');
+      timerDorong = setTimeout(dorongSekarang, 1500);
+    }
+    async function dorongSekarang(percobaan) {
+      if (!cfg) return;
+      if (sedangDorong) { timerDorong = setTimeout(dorongSekarang, 1000); return; }
+      adaTunda = false; sedangDorong = true;
+      const kirim = JSON.stringify(db);
+      try {
+        const r = await panggil('tulis', { versi: versiSheet, data: db });
+        if (r.ok) {
+          versiSheet = r.versi; dasar = kirim;
+          kotor = JSON.stringify(db) !== kirim; // masih ada ketikan baru selama pengiriman?
+          if (kotor) jadwalDorong(); else status('Sheet: tersimpan ' + jam());
+        } else if (r.konflik) {
+          // perangkat lain menulis lebih dulu: gabungkan perubahan perangkat ini dengan data terbaru, lalu kirim lagi
+          db = dasar ? gabung(dasar, db, r.data) : r.data;
+          versiSheet = r.versi; if (!dasar) { dasar = JSON.stringify(r.data); kotor = false; }
+          simpanLokal(); tampilkanSemua();
+          status('Sheet: digabung dengan perubahan dari perangkat lain ' + jam());
+          sedangDorong = false;
+          if (kotor && (percobaan || 0) < 3) return dorongSekarang((percobaan || 0) + 1);
+        } else status('Sheet: ' + r.pesan, true);
+      } catch (e) {
+        status('Sheet: gagal menyimpan, akan dicoba lagi. Perubahan tetap aman di perangkat ini.', true);
+        clearTimeout(timerDorong); timerDorong = setTimeout(dorongSekarang, 10000);
+      }
+      sedangDorong = false;
+    }
+    // TOMBOL: Hubungkan
+    $('btn-hubung').addEventListener('click', () => {
+      cfg = { url: $('sheet-url').value.trim(), kunci: $('sheet-kunci').value };
+      try { localStorage.setItem(KUNCI_CFG, JSON.stringify(cfg)); } catch (e) {}
+      versiSheet = null; dasar = null; kotor = false; tarik();
+    });
+    // TOMBOL: Mata. Menampilkan kunci; otomatis disembunyikan lagi setelah 8 detik
+    // Ikon: MATA_BUKA = kunci tersembunyi (ketuk untuk melihat), MATA_TUTUP = kunci terlihat (ketuk untuk menyembunyikan)
+    const MATA_BUKA = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const MATA_TUTUP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    let timerMata = null;
+    $('btn-mata').addEventListener('click', () => {
+      const k = $('sheet-kunci'), tampil = k.type === 'password';
+      k.type = tampil ? 'text' : 'password';
+      $('btn-mata').innerHTML = tampil ? MATA_TUTUP : MATA_BUKA;
+      clearTimeout(timerMata);
+      if (tampil) timerMata = setTimeout(() => { k.type = 'password'; $('btn-mata').innerHTML = MATA_BUKA; }, 8000);
+    });
+    // TOMBOL: Putuskan
+    $('btn-putus').addEventListener('click', () => {
+      cfg = null; versiSheet = null;
+      try { localStorage.removeItem(KUNCI_CFG); } catch (e) {}
+      status('');
+    });
+    // Cek data terbaru dari Sheet: saat kembali membuka halaman, saat jendela aktif lagi, saat internet pulih, dan tiap 20 detik
+    document.addEventListener('input', () => { terakhirKetik = Date.now(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) segarkan(); });
+    window.addEventListener('focus', segarkan);
+    window.addEventListener('online', segarkan);
+    function mulaiSinkron() {
+      if (cfg) { $('sheet-url').value = cfg.url || ''; $('sheet-kunci').value = cfg.kunci || ''; tarik(); }
+      setInterval(segarkan, 20000);
+    }
+
+    // ===== NAVIGASI TAB DAN TANGGAL =====
+    // Dipakai oleh: #menu dan #tanggal
+    function tampilkanHalaman(nama) {
+      document.querySelectorAll('.halaman').forEach(h => h.hidden = (h.id !== 'hal-' + nama));
+      document.querySelectorAll('#menu button').forEach(b => b.classList.toggle('aktif', b.dataset.hal === nama));
+      if (nama === 'input') renderInput();
+      if (nama === 'laporan') { renderLaporan(); renderPengaturan('harian'); }
+      if (nama === 'untung') renderUntung();
+      if (nama === 'master') renderMaster();
+      if (nama === 'cadangan') isiDaftarTgl();
+      if (nama === 'gantungan') renderGantungan();
+      if (nama === 'rekap') { renderRekap(); renderPengaturan('rekap'); }
+    }
+    function tampilkanSemua() {
+      const aktif = document.querySelector('#menu button.aktif').dataset.hal;
+      tampilkanHalaman(aktif);
+    }
+    $('menu').addEventListener('click', ev => { if (ev.target.dataset.hal) tampilkanHalaman(ev.target.dataset.hal); });
+    $('tanggal').addEventListener('change', ev => { tglAktif = ev.target.value || hariIni(); tampilkanSemua(); });
+
+    // ===== MULAI =====
+    muat();
+    $('tanggal').value = tglAktif;
+    $('dari').value = tglAktif.slice(0, 8) + '01';
+    $('sampai').value = tglAktif;
+    tampilkanHalaman('input');
+    $('tgl-hapus').value = tglAktif;
+    mulaiSinkron();
+
+  </script>
+</body>
+</html>
