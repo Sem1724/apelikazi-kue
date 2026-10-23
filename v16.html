@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catatan Titipan Kue</title>
+
+  <!-- ===== LIBRARY PEMBUAT PDF (butuh internet, hanya dipakai tombol Unduh PDF) ===== -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- ===== CSS GLOBAL (hanya warna, font, dan reset dasar) ===== -->
+  <style>
+    :root { --utama:#0f766e; --latar:#f3f5f4; --kartu:#ffffff; --teks:#1f2937; --garis:#d5dbd9; --merah:#b91c1c; --hijau:#15803d; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, Arial, sans-serif; background: var(--latar); color: var(--teks); }
+    input, button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .minus { color: var(--merah); }
+    .plus  { color: var(--hijau); }
+  </style>
+</head>
+<body>
+
+  <!-- ===== HEADER: judul + pemilih tanggal ===== -->
+  <style>
+    .header { background: var(--utama); color:#fff; padding:12px 16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+    .header h1 { font-size:18px; margin:0; }
+    .header input { padding:6px 8px; border:0; border-radius:6px; }
+  </style>
+  <header class="header">
+    <!-- Judul aplikasi -->
+    <h1>Catatan Titipan Kue</h1>
+    <!-- Pemilih tanggal (dipakai oleh halaman Input dan Laporan) -->
+    <label>Tanggal: <input type="date" id="tanggal"></label>
+    <!-- Status penyimpanan Google Sheet (diisi JavaScript) -->
+    <small id="status-sheet" style="width:100%"></small>
+  </header>
+
+  <!-- ===== MENU TAB: pindah antar halaman ===== -->
+  <style>
+    .menu { display:flex; overflow-x:auto; background:#fff; border-bottom:1px solid var(--garis); }
+    .menu button { flex:1; white-space:nowrap; padding:11px 12px; border:0; background:none; border-bottom:3px solid transparent; color: var(--teks); }
+    .menu button.aktif { border-bottom-color: var(--utama); color: var(--utama); font-weight:700; }
+  </style>
+  <nav class="menu" id="menu">
+    <!-- TAB: Input Harian -->
+    <button data-hal="input" class="aktif">Input Harian</button>
+    <!-- TAB: Laporan -->
+    <button data-hal="laporan">Laporan</button>
+    <!-- TAB: Keuntungan -->
+    <button data-hal="untung">Keuntungan</button>
+    <!-- TAB: Gantungan (saldo kurang / lebih yang belum selesai) -->
+    <button data-hal="gantungan">Gantungan</button>
+    <!-- TAB: Data Master -->
+    <button data-hal="master">Data Master</button>
+    <!-- TAB: Pengaturan (tulisan dan warna laporan) -->
+    <button data-hal="pengaturan">Pengaturan</button>
+    <!-- TAB: Cadangan -->
+    <button data-hal="cadangan">Cadangan</button>
+  </nav>
+
+  <!-- ===== STYLE UMUM SEMUA HALAMAN (lebar dan jarak) ===== -->
+  <style>
+    .halaman { max-width:760px; margin:0 auto; padding:12px; }
+    .halaman[hidden] { display:none; }
+    .tombol { background: var(--utama); color:#fff; border:0; border-radius:8px; padding:9px 14px; margin:2px 4px 2px 0; }
+    .tombol.abu { background:#6b7280; }
+    .tombol.merah { background: var(--merah); }
+    .kolom { padding:7px; border:1px solid var(--garis); border-radius:6px; }
+  </style>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 1: INPUT HARIAN                               -->
+  <!-- ===================================================== -->
+  <section id="hal-input" class="halaman">
+
+    <!-- BAR RINGKAS HARI INI: jumlah penitip hadir dan total uang -->
+    <style>
+      .ringkas-hari { background:#e6f2f0; border:1px solid var(--utama); border-radius:10px; padding:10px 12px; margin-bottom:10px; display:flex; justify-content:space-between; font-weight:700; }
+    </style>
+    <div class="ringkas-hari">
+      <!-- Teks: Hadir n penitip (diisi JavaScript) -->
+      <span id="ringkas-hadir"></span>
+      <!-- Teks: Total uang semua penitip (diisi JavaScript) -->
+      <span id="ringkas-total"></span>
+    </div>
+
+    <!-- DAFTAR KARTU PENITIP (kartu dibuat oleh JavaScript, CSS-nya ada tepat di bawah) -->
+    <style>
+      /* Kartu satu penitip */
+      .kartu { background: var(--kartu); border:1px solid var(--garis); border-radius:10px; margin-bottom:10px; overflow:hidden; }
+      /* Kepala kartu: centang hadir + nama penitip */
+      .kartu-kepala { display:flex; gap:10px; align-items:center; padding:11px 12px; font-weight:700; cursor:pointer; }
+      .kartu-kepala input { width:22px; height:22px; }
+      /* Isi kartu: tabel kue */
+      .kartu-isi { padding:0 12px 12px; }
+      .tabel-kue { width:100%; border-collapse:collapse; font-size:14px; }
+      .tabel-kue th { text-align:right; font-weight:600; padding:4px; border-bottom:1px solid var(--garis); }
+      .tabel-kue th:first-child, .tabel-kue td:first-child { text-align:left; }
+      .tabel-kue td { padding:4px; text-align:right; border-bottom:1px solid #eef1f0; }
+      .tabel-kue td input { width:58px; padding:6px; text-align:right; border:1px solid var(--garis); border-radius:6px; }
+      /* Bagian bawah kartu: total, saldo, uang fisik */
+      .kartu-bawah { margin-top:10px; }
+      .baris-hitung { display:flex; justify-content:space-between; align-items:center; padding:3px 0; }
+      .baris-hitung.tebal { font-weight:700; }
+      .baris-hitung input { width:120px; padding:7px; text-align:right; border:1px solid var(--garis); border-radius:6px; }
+    </style>
+    <div id="daftar-input"></div>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 2: LAPORAN (ringkasan untuk grup WhatsApp)    -->
+  <!-- ===================================================== -->
+  <section id="hal-laporan" class="halaman" hidden>
+
+    <!-- PERINGATAN: muncul jika ada kue yang sisanya belum diisi -->
+    <style>
+      .peringatan { background:#fef3c7; border:1px solid #d97706; border-radius:8px; padding:8px 10px; margin-bottom:10px; font-size:14px; }
+      .peringatan:empty { display:none; }
+    </style>
+    <div class="peringatan" id="peringatan"></div>
+
+    <!-- KOTAK TEKS LAPORAN: isi pesan yang akan dikirim ke grup -->
+    <style>
+      .teks-laporan { width:100%; height:360px; padding:10px; border:1px solid var(--garis); border-radius:8px; font-family: ui-monospace, Consolas, monospace; font-size:13px; }
+    </style>
+    <textarea class="teks-laporan" id="teks-laporan" readonly></textarea>
+
+    <!-- TOMBOL: Salin Laporan -->
+    <button class="tombol" id="btn-salin">Salin Laporan</button>
+    <!-- TOMBOL: Bagikan ke WhatsApp -->
+    <button class="tombol" id="btn-wa">Bagikan ke WhatsApp</button>
+    <!-- TOMBOL: Unduh PDF (satu file berisi semua penitip hari itu, tanpa harga jual dan untung) -->
+    <button class="tombol" id="btn-pdf">Unduh PDF</button>
+    <!-- Info hasil salin -->
+    <span id="info-salin"></span>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 3: KEUNTUNGAN (hanya untuk Anda)              -->
+  <!-- ===================================================== -->
+  <section id="hal-untung" class="halaman" hidden>
+
+    <!-- PILIH RENTANG TANGGAL REKAP -->
+    <style>
+      .rentang { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:10px; }
+    </style>
+    <div class="rentang">
+      <!-- Kolom: Dari tanggal -->
+      <label>Dari <input type="date" id="dari" class="kolom"></label>
+      <!-- Kolom: Sampai tanggal -->
+      <label>Sampai <input type="date" id="sampai" class="kolom"></label>
+    </div>
+
+    <!-- HASIL REKAP: kartu total + tabel (dibuat JavaScript, CSS di bawah) -->
+    <style>
+      .total-untung { display:flex; gap:10px; margin-bottom:10px; }
+      .total-untung div { flex:1; background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px; }
+      .total-untung b { display:block; font-size:18px; }
+      .hasil-untung h3 { margin:16px 0 6px; font-size:15px; }
+      .tabel-lap { width:100%; border-collapse:collapse; font-size:14px; background:#fff; }
+      .tabel-lap th, .tabel-lap td { padding:6px; border-bottom:1px solid var(--garis); text-align:right; }
+      .tabel-lap th:first-child, .tabel-lap td:first-child { text-align:left; }
+    </style>
+    <div class="hasil-untung" id="hasil-untung"></div>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 4: DATA MASTER (penitip, kue, harga)          -->
+  <!-- ===================================================== -->
+  <section id="hal-master" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Harga setor dipakai di laporan. Harga jual hanya untuk menghitung keuntungan Anda (kosongkan jika belum tahu).</p>
+
+    <!-- DAFTAR BLOK PENITIP (dibuat JavaScript, CSS di bawah) -->
+    <style>
+      .blok-penitip { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px; margin-bottom:10px; }
+      .blok-nama { display:flex; gap:6px; margin-bottom:8px; }
+      .blok-nama input { flex:1; font-weight:700; }
+      .baris-master { display:grid; grid-template-columns: 1fr 76px 76px auto; gap:4px; margin-bottom:4px; }
+      .baris-master input { min-width:0; }
+    </style>
+    <div id="daftar-master"></div>
+
+    <!-- TOMBOL: Tambah Penitip -->
+    <button class="tombol" id="btn-tambah-penitip">+ Tambah Penitip</button>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 5: CADANGAN (ekspor, impor, hapus semua)      -->
+  <!-- ===================================================== -->
+  <section id="hal-cadangan" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Data tersimpan di browser perangkat ini saja. Unduh cadangan secara berkala, atau gunakan untuk memindahkan data ke perangkat lain. Cadangan dibagi per bagian, dan file hanya bisa dipulihkan di bagian yang sama. Pulihkan Catatan Harian dan Data Master sebaiknya dari cadangan yang dibuat pada waktu yang sama, karena keduanya saling terhubung.</p>
+
+    <!-- ===== CADANGAN PER BAGIAN: tiap bagian punya tombol Unduh dan Pulihkan sendiri ===== -->
+    <style>
+      .kotak-cad { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+      .kotak-cad small { display:block; color:#4b5563; margin:2px 0 8px; }
+    </style>
+    <!-- BLOK CADANGAN: Catatan Harian -->
+    <div class="kotak-cad">
+      <b>Catatan Harian</b>
+      <small>Nitip, sisa, dan uang fisik semua tanggal.</small>
+      <!-- TOMBOL: Unduh Catatan Harian -->
+      <button class="tombol" data-cad="harian" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Catatan Harian -->
+      <button class="tombol abu" data-cad="harian" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- BLOK CADANGAN: Pengaturan Laporan -->
+    <div class="kotak-cad">
+      <b>Pengaturan Laporan</b>
+      <small>Tulisan, warna, rata, dan ketebalan laporan.</small>
+      <!-- TOMBOL: Unduh Pengaturan Laporan -->
+      <button class="tombol" data-cad="pengaturan" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Pengaturan Laporan -->
+      <button class="tombol abu" data-cad="pengaturan" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- BLOK CADANGAN: Data Master -->
+    <div class="kotak-cad">
+      <b>Data Master</b>
+      <small>Daftar penitip, kue, harga setor, dan harga jual.</small>
+      <!-- TOMBOL: Unduh Data Master -->
+      <button class="tombol" data-cad="master" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Data Master -->
+      <button class="tombol abu" data-cad="master" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- BLOK CADANGAN: Semuanya -->
+    <div class="kotak-cad">
+      <b>Semuanya</b>
+      <small>Catatan harian, pengaturan laporan, dan Data Master sekaligus.</small>
+      <!-- TOMBOL: Unduh Semuanya -->
+      <button class="tombol" data-cad="semua" data-aksi="unduh">Unduh</button>
+      <!-- TOMBOL: Pulihkan Semuanya -->
+      <button class="tombol abu" data-cad="semua" data-aksi="pulih">Pulihkan</button>
+    </div>
+    <!-- Input file tersembunyi (dipakai semua tombol Pulihkan) -->
+    <input type="file" id="file-impor" accept=".json" hidden>
+    <!-- TOMBOL: Batalkan Pemulihan Terakhir (muncul setelah memulihkan; hilang jika halaman dimuat ulang) -->
+    <button class="tombol merah" id="btn-batal-pulih" hidden>Batalkan Pemulihan Terakhir</button>
+
+    <!-- ===== HAPUS CATATAN HARIAN (pilih satu tanggal atau semua; Data Master tidak ikut terhapus) ===== -->
+    <style>
+      .kotak-hapus { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin:14px 0; }
+      .kotak-hapus label { display:block; margin:8px 0; }
+      .kotak-hapus small { display:block; color:#4b5563; }
+    </style>
+    <div class="kotak-hapus">
+      <b>Hapus Catatan Harian</b>
+      <small>Menghapus nitip, sisa, dan uang fisik. Data Master tidak ikut terhapus. Tiap tombol ditekan dua kali.</small>
+      <!-- Daftar tanggal yang punya catatan (diisi JavaScript) -->
+      <small id="daftar-tgl-hapus" style="margin-top:6px"></small>
+      <!-- Kolom: pilih tanggal yang mau dihapus -->
+      <label>Pilih tanggal <input type="date" id="tgl-hapus" class="kolom"></label>
+      <!-- TOMBOL: Hapus Tanggal Ini -->
+      <button class="tombol merah" id="btn-hapus-tgl">Hapus Tanggal Ini</button>
+      <!-- TOMBOL: Hapus Semua Tanggal -->
+      <button class="tombol merah" id="btn-hapus-semua">Hapus Semua Tanggal</button>
+    </div>
+
+    <!-- ===== PENGATURAN GOOGLE SHEET (data tersimpan online, sama di semua perangkat) ===== -->
+    <style>
+      .kotak-sheet { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin:14px 0; }
+      .kotak-sheet label { display:block; margin:8px 0; }
+      .kotak-sheet input { width:100%; margin-top:3px; }
+    </style>
+    <div class="kotak-sheet">
+      <b>Simpan ke Google Sheet</b>
+      <p style="font-size:13px;margin:4px 0">Isi di setiap perangkat yang ingin dipakai. Unduh Cadangan dulu sebelum menghubungkan. Jika Sheet sudah berisi data, data di perangkat ini diganti dengan isi Sheet.</p>
+      <!-- Kolom: Alamat Apps Script -->
+      <label>Alamat Apps Script <input class="kolom" id="sheet-url" placeholder="https://script.google.com/macros/s/.../exec"></label>
+      <!-- Kolom: Kunci (kata sandi) + tombol mata -->
+      <style>
+        .baris-kunci { display:flex; gap:6px; }
+        .baris-kunci input { width:auto; flex:1; min-width:0; margin-top:0; }
+        .baris-kunci button { margin:0; padding:0 14px; }
+      </style>
+      <label for="sheet-kunci">Kunci (kata sandi)</label>
+      <div class="baris-kunci">
+        <!-- Kolom isian kunci (tersembunyi sebagai titik-titik) -->
+        <input class="kolom" id="sheet-kunci" type="password">
+        <!-- TOMBOL: Mata (tampilkan / sembunyikan kunci) -->
+        <button type="button" class="tombol abu" id="btn-mata" aria-label="Tampilkan atau sembunyikan kunci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
+      <!-- TOMBOL: Hubungkan -->
+      <button class="tombol" id="btn-hubung">Hubungkan</button>
+      <!-- TOMBOL: Putuskan -->
+      <button class="tombol abu" id="btn-putus">Putuskan</button>
+    </div>
+
+    <!-- Info hasil aksi -->
+    <p id="info-cadangan"></p>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN: GANTUNGAN (saldo kurang / lebih belum selesai) -->
+  <!-- ===================================================== -->
+  <section id="hal-gantungan" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Daftar penitip yang saldonya masih kurang atau lebih (belum Pas), lengkap dengan tanggal munculnya. Saldo hilang dari daftar ini setelah penitip nitip lagi dan uang fisiknya Pas.</p>
+
+    <!-- KOLOM: batas hari untuk ditandai merah -->
+    <label>Tandai merah jika sudah lebih dari <input type="number" id="batas-hari" class="kolom" value="7" min="1" style="width:70px"> hari tidak nitip</label>
+
+    <!-- HASIL (dibuat JavaScript, CSS-nya di bawah ini; kotak total memakai gaya yang sama dengan halaman Keuntungan) -->
+    <style>
+      .kartu-gantung { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+      .kartu-gantung .judul { display:flex; justify-content:space-between; font-weight:700; }
+      .kartu-gantung small { display:block; margin:4px 0; }
+      .lama { color: var(--merah); font-weight:700; }
+      #hasil-gantungan { margin-top:10px; }
+    </style>
+    <div id="hasil-gantungan"></div>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- HALAMAN 6: PENGATURAN (tulisan dan warna laporan)     -->
+  <!-- ===================================================== -->
+  <section id="hal-pengaturan" class="halaman" hidden>
+
+    <!-- PETUNJUK -->
+    <p>Ubah tulisan, warna, rata, dan ketebalan laporan di sini. Semua kelompok terbuka; ketuk judulnya kalau ingin menutup. Perubahan tersimpan otomatis dan ikut tersimpan di Google Sheet, jadi sama di semua perangkat.</p>
+
+    <!-- FORM PENGATURAN (dibuat JavaScript, CSS-nya di bawah ini) -->
+    <style>
+      .grup-set { background:#fff; border:1px solid var(--garis); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+      .grup-set label { display:grid; grid-template-columns: 1fr 1fr; gap:6px; align-items:center; margin:6px 0; font-size:14px; }
+      .grup-set input[type=color] { width:60px; height:34px; padding:0; border:1px solid var(--garis); border-radius:6px; }
+      .grup-set input[type=checkbox] { width:22px; height:22px; }
+      .grup-set select { padding:7px; border:1px solid var(--garis); border-radius:6px; font:inherit; }
+      .grup-set summary { cursor:pointer; padding:2px 0; }
+    </style>
+    <div id="form-pengaturan"></div>
+
+    <!-- TOMBOL: Pratinjau PDF (memakai tanggal yang dipilih di bagian atas) -->
+    <button class="tombol" id="btn-pratinjau">Pratinjau PDF</button>
+    <!-- TOMBOL: Kembalikan ke Awal (tekan dua kali) -->
+    <button class="tombol abu" id="btn-reset-pengaturan">Kembalikan ke Awal</button>
+    <!-- Tautan hasil pratinjau (muncul setelah Pratinjau PDF ditekan) -->
+    <p><a id="link-pratinjau" href="#" target="_blank" hidden></a></p>
+    <!-- Info hasil aksi -->
+    <p id="info-pengaturan"></p>
+
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- JAVASCRIPT (semua logika ada di bawah, per blok)      -->
+  <!-- ===================================================== -->
+  <script>
+
+    // ===== DATA AWAL: 19 penitip dan kuenya (nama, harga setor) =====
+    // Dipakai oleh: Data Master (isi awal). Format: [nama penitip, [[nama kue, harga setor], ...]]
+    const DATA_AWAL = [
+      ['Griya', [['Kue - kue',1000]]],
+      ['Cilok', [['Cilok Tusuk',800],['Cilok Bungkus',4000]]],
+      ['Madonat', [['Donat',1000]]],
+      ['Dimsum', [['Dimsum',4500]]],
+      ['Mayo', [['Mayo',1700]]],
+      ['NM Gs. Alm', [['Apem',1700],['Talam',1700]]],
+      ['NM Griya', [['Talam',1700]]],
+      ['Nopal', [['Kue - kue',1700],['Gabin',2000],['Pesenan',1700]]],
+      ['Mba dewi', [['Kebab',2000],['Salad Jelly',6000],['Pastel sayur (Plstk)',1700],['Pastel Bihun',1200]]],
+      ['Tasya', [['Puding',1700],['Ketan sundeng',1700]]],
+      ['Budiana', [['Kue sus (Besar)',1700],['Kue sus (Kecil)',1200],['Bolu ketan hitam',1700],['Bolu pisang',1700],['Lapis (Plastik)',1000],['Lapis (Mika)',1700],['Bolu karamel',2000],['Wingko',2000],['Cake singkong',1700],['Bolu Jadul',1700],['Ongol ongol',1700],['Ubi Ungu',1700]]],
+      ['Bude', [['Kue - kue',1000],['SS',1700],['Risol',1000],['Mendut + Lemper',1700]]],
+      ['Bu Yanti', [['Lopis',5000],['Arem',1700],['Sosis solo',1700],['Wajik',1700],['Krekes',1700],['Bugis mandi',1700],['Martabak',1000],['Apem',1000],['Pastel',1700],['Risol',1700],['Lemper',1700]]],
+      ['Donat seres', [['Donat',800]]],
+      ['Mm Nurul', [['Lapis (Grs kcl)',1700]]],
+      ['Sosis solo', [['Sosis solo',1700]]],
+      ['Onde', [['Onde',1000]]],
+      ['Mba ciken', [['Bubur sumsum',4500],['Cang ijo',4500],['Timus',1000]]],
+      ['Mochi', [['Mochi (pesanan)',4500],['Mochi (Nitip)',4500]]]
+    ];
+
+    // ===== ALAT BANTU KECIL =====
+    // Dipakai oleh: semua halaman
+    const $ = id => document.getElementById(id);
+    const uid = () => Math.random().toString(36).slice(2, 9);
+    const rp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const angka = v => (v === '' ? '' : Number(v));
+    function hariIni() {
+      const t = new Date();
+      return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    }
+    function namaTanggal(tgl) {
+      return new Date(tgl + 'T00:00:00').toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+    }
+
+    // ===== PENYIMPANAN DATA (localStorage di browser) =====
+    // Dipakai oleh: semua halaman. Bentuk data: { penitip:[{id,nama,kue:[{id,nama,setor,jual}]}], hari:{ tanggal:{ idPenitip:{hadir,fisik,kue:{idKue:{nama,nitip,sisa,setor,jual}}} } } }
+    const KUNCI = 'catatanTitipanKue';
+    let db = null;
+    let tglAktif = hariIni();
+
+    function buatDataAwal() {
+      return {
+        penitip: DATA_AWAL.map(([nama, daftar]) => ({
+          id: uid(), nama,
+          kue: daftar.map(([n, h]) => ({ id: uid(), nama: n, setor: h, jual: 0 }))
+        })),
+        hari: {}
+      };
+    }
+    function muat() {
+      try { db = JSON.parse(localStorage.getItem(KUNCI)); } catch (e) { db = null; }
+      if (!db || !Array.isArray(db.penitip)) db = buatDataAwal();
+    }
+    function simpan() {
+      try { localStorage.setItem(KUNCI, JSON.stringify(db)); } catch (e) { /* penyimpanan diblokir: data hanya hidup selama halaman terbuka */ }
+      jadwalDorong(); // kirim ke Google Sheet (jika sudah terhubung)
+    }
+
+    // ===== AKSES DATA HARIAN =====
+    // Dipakai oleh: Input Harian, Laporan, Keuntungan
+    const cariPenitip = id => db.penitip.find(p => p.id === id);
+    const entri = (tgl, pid) => (db.hari[tgl] || {})[pid];
+    function pastikanEntri(tgl, pid) {
+      db.hari[tgl] = db.hari[tgl] || {};
+      db.hari[tgl][pid] = db.hari[tgl][pid] || { hadir: false, fisik: '', kue: {} };
+      return db.hari[tgl][pid];
+    }
+    // Harga disalin ke catatan hari itu, jadi laporan lama tidak berubah jika harga diganti nanti
+    function pastikanKue(tgl, pid, kid) {
+      const e = pastikanEntri(tgl, pid);
+      if (!e.kue[kid]) {
+        const k = cariPenitip(pid).kue.find(x => x.id === kid);
+        e.kue[kid] = { nama: k.nama, nitip: '', sisa: '', setor: k.setor, jual: k.jual };
+      }
+      return e.kue[kid];
+    }
+
+    // ===== HITUNGAN (laku, uang, total, saldo) =====
+    // Dipakai oleh: Input Harian, Laporan, Keuntungan
+    // Laku = Nitip - Sisa | Uang = Laku x Harga setor | Harus disetor = Total - Saldo sebelumnya
+    function ringkas(tgl, p) {
+      const e = entri(tgl, p.id);
+      const baris = [];
+      let total = 0, untung = 0;
+      if (e && e.hadir) {
+        // urutan kue mengikuti Data Master; kue yang sudah dihapus dari master tetap ikut di bagian akhir
+        const ids = [...p.kue.map(k => k.id), ...Object.keys(e.kue).filter(id => !p.kue.some(k => k.id === id))];
+        ids.forEach(id => {
+          const c = e.kue[id];
+          if (!c || !(c.nitip > 0)) return;
+          const siap = c.sisa !== '' && c.sisa !== undefined;
+          const laku = siap ? c.nitip - c.sisa : 0;
+          const uang = laku * c.setor;
+          // harga jual: pakai yang tersalin di hari itu; jika kosong (0), pakai harga jual terbaru di Data Master
+          const km = p.kue.find(x => x.id === id);
+          const jual = c.jual > 0 ? c.jual : (km ? km.jual : 0);
+          const u = jual > 0 ? laku * (jual - c.setor) : 0;
+          baris.push({ id, nama: c.nama, setor: c.setor, nitip: c.nitip, sisa: c.sisa, siap, laku, uang, untung: u });
+          total += uang; untung += u;
+        });
+      }
+      const hadir = !!(e && e.hadir);
+      const sebelum = hadir ? saldoSebelum(tgl, p) : 0;
+      const tglSebelum = hadir && sebelum !== 0 ? tglSaldoSebelum(tgl, p) : null;
+      const harus = total - sebelum;
+      const fisik = (e && e.fisik !== '' && e.fisik != null) ? e.fisik : null;
+      return { hadir, baris, total, untung, sebelum, tglSebelum, harus, fisik, saldo: fisik === null ? null : fisik - harus };
+    }
+    // Saldo = uang fisik - harus disetor. Negatif = kurang, positif = lebih. Dibawa ke hari berikutnya.
+    // Tanggal terakhir penitip ini hadir dengan uang fisik terisi = tanggal munculnya kurang/lebih yang terbawa
+    function tglSaldoSebelum(tgl, p) {
+      const tglLalu = Object.keys(db.hari)
+        .filter(t => t < tgl && db.hari[t][p.id] && db.hari[t][p.id].hadir && db.hari[t][p.id].fisik !== '' && db.hari[t][p.id].fisik != null)
+        .sort().reverse();
+      return tglLalu.length ? tglLalu[0] : null;
+    }
+    function saldoSebelum(tgl, p) {
+      const t = tglSaldoSebelum(tgl, p);
+      return t ? ringkas(t, p).saldo : 0;
+    }
+    // Tanggal angka lengkap untuk keterangan, contoh: 22/10/2026 (hari/bulan/tahun)
+    function labelTgl(t) {
+      const [y, b, h] = t.split('-');
+      return h + '/' + b + '/' + y;
+    }
+    function labelSebelum(s, t) {
+      const nama = s < 0 ? pengaturan().tbh : s > 0 ? pengaturan().ptg : 'Saldo sebelumnya'; // tulisan diatur di halaman Pengaturan
+      return t ? nama + ' (' + labelTgl(t) + ')' : nama; // t = tanggal munculnya
+    }
+    function labelSaldo(s) { return s === null ? '-' : s < 0 ? 'Kurang ' + rp(-s) : s > 0 ? 'Lebih ' + rp(s) : 'Pas'; }
+    function kelasSaldo(s) { return s === null || s === 0 ? '' : s < 0 ? 'minus' : 'plus'; }
+
+    // ===== HALAMAN INPUT HARIAN: gambar kartu penitip =====
+    // Mengisi elemen: #daftar-input
+    function renderInput() {
+      $('daftar-input').innerHTML = db.penitip.map(p => {
+        const e = entri(tglAktif, p.id);
+        const hadir = !!(e && e.hadir);
+        // isi tabel kue hanya muncul jika penitip hadir
+        const isi = !hadir ? '' : `
+          <!-- ISI KARTU: tabel kue milik ${esc(p.nama)} -->
+          <div class="kartu-isi">
+            <table class="tabel-kue">
+              <tr><th>Kue</th><th>Nitip</th><th>Sisa</th><th>Laku</th><th>Uang</th></tr>
+              ${p.kue.map(k => {
+                const c = (e.kue && e.kue[k.id]) || {};
+                return `<tr>
+                  <td>${esc(k.nama)}<br><small>${rp(k.setor)}</small></td>
+                  <td><input type="number" min="0" inputmode="numeric" data-aksi="nitip" data-p="${p.id}" data-k="${k.id}" value="${c.nitip ?? ''}"></td>
+                  <td><input type="number" min="0" inputmode="numeric" data-aksi="sisa" data-p="${p.id}" data-k="${k.id}" value="${c.sisa ?? ''}"></td>
+                  <td data-laku="${k.id}">-</td>
+                  <td data-uang="${k.id}">-</td>
+                </tr>`;
+              }).join('')}
+            </table>
+            <!-- BAGIAN BAWAH KARTU: total, saldo, uang fisik -->
+            <div class="kartu-bawah">
+              <div class="baris-hitung tebal"><span>Total uang</span><span data-f="total"></span></div>
+              <div class="baris-hitung"><span data-f="label-sebelum"></span><span data-f="sebelum"></span></div>
+              <div class="baris-hitung tebal"><span>Harus disetor</span><span data-f="harus"></span></div>
+              <div class="baris-hitung"><span>Uang fisik</span><input type="number" min="0" inputmode="numeric" data-aksi="fisik" data-p="${p.id}" value="${e.fisik ?? ''}"></div>
+              <div class="baris-hitung tebal"><span>Saldo</span><span data-f="saldo"></span></div>
+            </div>
+          </div>`;
+        return `
+        <!-- KARTU PENITIP: ${esc(p.nama)} -->
+        <div class="kartu" id="kartu-${p.id}">
+          <!-- KEPALA KARTU: centang hadir + nama -->
+          <label class="kartu-kepala">
+            <input type="checkbox" data-aksi="hadir" data-p="${p.id}" ${hadir ? 'checked' : ''}>
+            <span>${esc(p.nama)}</span>
+          </label>
+          ${isi}
+        </div>`;
+      }).join('');
+      db.penitip.forEach(p => perbaruiKartu(p.id));
+      perbaruiRingkasHari();
+    }
+
+    // Hitung ulang angka di satu kartu tanpa menggambar ulang (supaya kolom isian tidak kehilangan fokus)
+    function perbaruiKartu(pid) {
+      const p = cariPenitip(pid), kartu = $('kartu-' + pid);
+      if (!kartu || !entri(tglAktif, pid) || !entri(tglAktif, pid).hadir) return;
+      const r = ringkas(tglAktif, p);
+      p.kue.forEach(k => {
+        const b = r.baris.find(x => x.id === k.id);
+        kartu.querySelector(`[data-laku="${k.id}"]`).textContent = b && b.siap ? b.laku : '-';
+        kartu.querySelector(`[data-uang="${k.id}"]`).textContent = b && b.siap ? rp(b.uang) : '-';
+      });
+      const isiF = (nama, teks, kelas) => { const el = kartu.querySelector(`[data-f="${nama}"]`); el.textContent = teks; if (kelas !== undefined) el.className = kelas; };
+      isiF('total', rp(r.total));
+      isiF('label-sebelum', labelSebelum(r.sebelum, r.tglSebelum));
+      isiF('sebelum', rp(Math.abs(r.sebelum)));
+      isiF('harus', rp(r.harus));
+      isiF('saldo', labelSaldo(r.saldo), kelasSaldo(r.saldo));
+    }
+    function perbaruiRingkasHari() {
+      let hadir = 0, total = 0;
+      db.penitip.forEach(p => { const r = ringkas(tglAktif, p); if (r.hadir) { hadir++; total += r.total; } });
+      $('ringkas-hadir').textContent = 'Hadir ' + hadir + ' penitip';
+      $('ringkas-total').textContent = rp(total);
+    }
+
+    // ===== HALAMAN INPUT HARIAN: reaksi saat mengetik / mencentang =====
+    // Dipakai oleh: #daftar-input
+    $('daftar-input').addEventListener('input', ev => {
+      const t = ev.target, a = t.dataset.aksi, pid = t.dataset.p;
+      if (!a || a === 'hadir') return;
+      if (a === 'fisik') pastikanEntri(tglAktif, pid).fisik = angka(t.value);
+      else pastikanKue(tglAktif, pid, t.dataset.k)[a] = angka(t.value);
+      simpan(); perbaruiKartu(pid); perbaruiRingkasHari();
+    });
+    $('daftar-input').addEventListener('change', ev => {
+      if (ev.target.dataset.aksi !== 'hadir') return;
+      pastikanEntri(tglAktif, ev.target.dataset.p).hadir = ev.target.checked;
+      simpan(); renderInput();
+    });
+
+    // ===== PENGATURAN LAPORAN (tulisan, warna, rata, ketebalan PDF / tulisan WhatsApp) =====
+    // Dipakai oleh: halaman Pengaturan, teks laporan WhatsApp, dan PDF. Disimpan di db.pengaturan (ikut tersimpan ke Google Sheet).
+    // Tulisan dan pengaturan umum:
+    const DEF_PENGATURAN = {
+      judul: 'Dari YULI',
+      pdfKue: 'Kue', pdfJumlah: 'Jumlah', pdfSisa: 'Sisa', pdfLaku: 'Laku', pdfHarga: 'Harga', pdfUang: 'Uang',
+      pdfBrt: 'Brt', pdfTotal: 'Total', pdfDiterima: 'Diterima',
+      waNitip: 'nitip', waSisa: 'sisa', waLaku: 'laku', waTotal: 'Total', waHarus: 'Harus disetor', waDiterima: 'Uang diterima',
+      kurang: 'Kurang', lebih: 'Lebih', tbh: 'Tbh', ptg: 'Ptg',
+      pdfFamily: 'helvetica', pdfLebar: 110, pdfTema: 'grid', pdfWarnaGaris: '#0a0a0a', pdfTebalGaris: 0.1, pdfJarak: 5, pdfPadding: 1.2, pdfCatatan: ''
+    };
+    function pengaturan() { return Object.assign({}, DEF_PENGATURAN, db.pengaturan || {}); }
+    function hexKeRgb(h) { const n = parseInt(String(h).slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+    const batas = (v, min, max, awal) => (v === '' || v == null || isNaN(Number(v))) ? awal : Math.min(max, Math.max(min, Number(v)));
+
+    // Gaya tiap bagian PDF. T(warna, perubahan) membuat gaya bawaan; yang tidak dipakai suatu bagian diabaikan.
+    // Isi: warna tulisan, latar, tebal, miring, rata (kiri/tengah/kanan), rataNilai (rata angka di baris ringkasan), ukuran huruf, tampil, besar, lebar kolom
+    const T = (warna, o) => Object.assign({ warna, latar: '#ffffff', tebal: false, miring: false, rata: 'kiri', rataNilai: 'kanan', ukuran: 8, tampil: true, besar: false, lebar: 0 }, o);
+    const GAYA_DEF = {
+      judul: T('#000000', { ukuran: 13 }),
+      tanggal: T('#000000', { ukuran: 9 }),
+      nama: T('#ffffff', { latar: '#0f766e', tebal: true }),
+      kepala: T('#1e1e1e', { latar: '#e6f2f0', tebal: true }),
+      kolKue: T('#141414'), kolJumlah: T('#141414', { rata: 'kanan' }), kolSisa: T('#141414', { rata: 'kanan' }),
+      kolLaku: T('#141414', { rata: 'kanan' }), kolHarga: T('#141414', { rata: 'kanan' }), kolUang: T('#141414', { rata: 'kanan' }),
+      rBrt: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      rTbh: T('#141414', { rata: 'kanan' }), // saldo hari lalu berupa kekurangan (Tbh)
+      rPtg: T('#141414', { rata: 'kanan' }), // saldo hari lalu berupa potongan / kelebihan (Ptg)
+      rTotal: T('#1d4ed8', { tebal: true, rata: 'kanan' }),
+      rDiterima: T('#141414', { rata: 'kanan' }),
+      rKurang: T('#15803d', { tebal: true, rata: 'kanan' }),
+      rLebih: T('#b91c1c', { tebal: true, rata: 'kanan' }),
+      catatan: T('#000000', { miring: true })
+    };
+    const LAMA = { rBrt: 'warnaBrt', rTotal: 'warnaTotal', rKurang: 'warnaKurang', rLebih: 'warnaLebih' }; // nama pengaturan versi sebelumnya
+    function gaya(k) {
+      const P = db.pengaturan || {}, d = Object.assign({}, GAYA_DEF[k]);
+      if (LAMA[k] && P[LAMA[k]]) d.warna = P[LAMA[k]];
+      if (k === 'kolHarga' && P.pdfHargaOn === false) d.tampil = false;
+      const lama = (k === 'rTbh' || k === 'rPtg') ? (P.gaya || {}).rSaldo : null; // pengaturan lama: satu gaya untuk Tbh dan Ptg
+      return Object.assign(d, lama, (P.gaya || {})[k]);
+    }
+    const RATA = { kiri: 'left', tengah: 'center', kanan: 'right' };
+    // Ubah gaya menjadi gaya sel tabel PDF
+    function gayaSel(g) {
+      return { textColor: hexKeRgb(g.warna), fillColor: hexKeRgb(g.latar), halign: RATA[g.rata] || 'left', fontSize: batas(g.ukuran, 5, 20, 8),
+               fontStyle: g.tebal ? (g.miring ? 'bolditalic' : 'bold') : (g.miring ? 'italic' : 'normal') };
+    }
+
+    // Daftar bagian PDF di halaman Pengaturan: [kunci, nama, pilihan yang tersedia]
+    const SEMUA = ['warna', 'latar', 'tebal', 'miring', 'rata', 'rataNilai', 'ukuran'];
+    const ELEMEN = [
+      ['judul', 'Judul laporan', ['warna', 'tebal', 'miring', 'rata', 'ukuran']],
+      ['tanggal', 'Tanggal di bawah judul', ['tampil', 'warna', 'tebal', 'miring', 'rata', 'ukuran']],
+      ['nama', 'Baris nama penitip', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'besar']],
+      ['kepala', 'Baris judul kolom (rata ikut kolom)', ['warna', 'latar', 'tebal', 'miring', 'ukuran']],
+      ['kolKue', 'Kolom kue', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolJumlah', 'Kolom jumlah titipan', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolSisa', 'Kolom sisa', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolLaku', 'Kolom laku', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolHarga', 'Kolom harga', ['tampil', 'warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['kolUang', 'Kolom uang', ['warna', 'latar', 'tebal', 'miring', 'rata', 'ukuran', 'lebar']],
+      ['rBrt', 'Baris jumlah uang kue', ['tampil'].concat(SEMUA)],
+      ['rTbh', 'Baris kekurangan hari lalu (Tbh)', ['tampil'].concat(SEMUA)],
+      ['rPtg', 'Baris potongan hari lalu (Ptg)', ['tampil'].concat(SEMUA)],
+      ['rTotal', 'Baris Total setelah saldo', ['tampil'].concat(SEMUA)],
+      ['rDiterima', 'Baris uang diterima', ['tampil'].concat(SEMUA)],
+      ['rKurang', 'Baris Kurang', ['tampil'].concat(SEMUA)],
+      ['rLebih', 'Baris Lebih', ['tampil'].concat(SEMUA)],
+      ['catatan', 'Catatan di bagian bawah', ['warna', 'tebal', 'miring', 'rata', 'ukuran']]
+    ];
+    const NAMA_PILIHAN = { tampil: 'Tampilkan', warna: 'Warna tulisan', latar: 'Warna latar', tebal: 'Tebal', miring: 'Miring', rata: 'Rata tulisan', rataNilai: 'Rata angka', ukuran: 'Ukuran huruf (5 sampai 20)', besar: 'Semua HURUF BESAR', lebar: 'Lebar kolom (mm, 0 = otomatis)' };
+    const PILIHAN_RATA = [['kiri', 'Rata kiri'], ['tengah', 'Rata tengah'], ['kanan', 'Rata kanan']];
+
+    // Daftar isian tulisan: [kunci, nama isian]
+    const KELOMPOK = [
+      { judul: 'Judul laporan (PDF dan WhatsApp)', isi: [['judul', 'Judul']] },
+      { judul: 'Judul kolom tabel PDF', isi: [['pdfKue', 'Kolom kue'], ['pdfJumlah', 'Kolom jumlah titipan'], ['pdfSisa', 'Kolom sisa'], ['pdfLaku', 'Kolom laku'], ['pdfHarga', 'Kolom harga'], ['pdfUang', 'Kolom uang']] },
+      { judul: 'Tulisan baris ringkasan PDF', isi: [['pdfBrt', 'Jumlah uang kue'], ['pdfTotal', 'Total setelah saldo'], ['pdfDiterima', 'Uang diterima'], ['pdfCatatan', 'Catatan di bagian bawah']] },
+      { judul: 'Tulisan laporan WhatsApp', isi: [['waNitip', 'Kata "nitip"'], ['waSisa', 'Kata "sisa"'], ['waLaku', 'Kata "laku"'], ['waTotal', 'Jumlah uang kue'], ['waHarus', 'Harus disetor'], ['waDiterima', 'Uang diterima']] },
+      { judul: 'Tulisan bersama (PDF dan WhatsApp)', isi: [['kurang', 'Kurang'], ['lebih', 'Lebih'], ['tbh', 'Kekurangan hari lalu'], ['ptg', 'Potongan hari lalu']] }
+    ];
+
+    // Satu isian gaya (kotak centang, warna, pilihan rata, atau angka)
+    function kontrol(el, prop, nilai) {
+      const a = `data-el="${el}" data-prop="${prop}"`;
+      let isi;
+      if (['tampil', 'tebal', 'miring', 'besar'].includes(prop)) isi = `<input type="checkbox" ${a} ${nilai ? 'checked' : ''}>`;
+      else if (prop === 'warna' || prop === 'latar') isi = `<input type="color" ${a} value="${esc(nilai)}">`;
+      else if (prop === 'rata' || prop === 'rataNilai') isi = `<select ${a}>${PILIHAN_RATA.map(([v, n]) => `<option value="${v}" ${v === nilai ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+      else isi = `<input class="kolom" type="number" step="any" ${a} value="${nilai}">`;
+      return `<label>${NAMA_PILIHAN[prop]}${isi}</label>`;
+    }
+    // Gambar semua isian di halaman Pengaturan. Mengisi elemen: #form-pengaturan
+    function renderPengaturan() {
+      const L = pengaturan();
+      const teks = (k, nama) => `<label>${nama}<input class="kolom" data-key="${k}" value="${esc(L[k])}"></label>`;
+      const angka = (k, nama, step) => `<label>${nama}<input class="kolom" type="number" step="${step}" data-key="${k}" value="${L[k]}"></label>`;
+      const pilih = (k, nama, daftar) => `<label>${nama}<select data-key="${k}">${daftar.map(([v, n]) => `<option value="${v}" ${v === L[k] ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+      $('form-pengaturan').innerHTML =
+        KELOMPOK.map(g => `<!-- KELOMPOK TULISAN: ${g.judul} --><details class="grup-set" open><summary><b>${g.judul}</b></summary>${g.isi.map(([k, n]) => teks(k, n)).join('')}</details>`).join('') +
+        `<!-- KELOMPOK: Tampilan umum PDF --><details class="grup-set" open><summary><b>Tampilan umum PDF</b></summary>
+          ${pilih('pdfFamily', 'Jenis huruf', [['helvetica', 'Helvetica (polos)'], ['times', 'Times (berkaki)'], ['courier', 'Courier (mesin tik)']])}
+          ${angka('pdfLebar', 'Lebar halaman (mm, 60 sampai 210)', 1)}
+          ${pilih('pdfTema', 'Garis tabel', [['grid', 'Ada garis'], ['plain', 'Tanpa garis']])}
+          <label>Warna garis<input type="color" data-key="pdfWarnaGaris" value="${esc(L.pdfWarnaGaris)}"></label>
+          ${angka('pdfTebalGaris', 'Tebal garis (mm)', 0.05)}
+          ${angka('pdfJarak', 'Jarak antar penitip (mm)', 1)}
+          ${angka('pdfPadding', 'Jarak tulisan ke tepi sel (mm)', 0.1)}
+        </details>` +
+        ELEMEN.map(([k, nama, daftar]) => { const g = gaya(k); return `<!-- KELOMPOK GAYA: ${nama} --><details class="grup-set" open><summary><b>Gaya: ${nama}</b></summary>${daftar.map(p => kontrol(k, p, g[p])).join('')}</details>`; }).join('');
+    }
+    // Simpan otomatis setiap kali isian diubah
+    function simpanIsian(ev) {
+      const t = ev.target;
+      if (!t.dataset || (!t.dataset.el && !t.dataset.key)) return;
+      db.pengaturan = db.pengaturan || {};
+      const nilai = t.type === 'checkbox' ? t.checked : t.type === 'number' ? (t.value === '' ? '' : Number(t.value)) : t.value;
+      if (t.dataset.el) {
+        const G = db.pengaturan.gaya = db.pengaturan.gaya || {};
+        (G[t.dataset.el] = G[t.dataset.el] || {})[t.dataset.prop] = nilai;
+      } else db.pengaturan[t.dataset.key] = nilai;
+      simpan();
+    }
+    $('form-pengaturan').addEventListener('input', simpanIsian);
+    $('form-pengaturan').addEventListener('change', simpanIsian);
+    // TOMBOL: Kembalikan ke Awal (hanya pengaturan laporan; data lain tidak tersentuh)
+    $('btn-reset-pengaturan').addEventListener('click', ev => dua(ev.target, () => {
+      db.pengaturan = {}; simpan(); renderPengaturan();
+      $('info-pengaturan').textContent = 'Pengaturan dikembalikan ke awal.';
+    }));
+
+    // ===== HALAMAN LAPORAN: susun teks untuk grup WhatsApp =====
+    // Mengisi elemen: #teks-laporan dan #peringatan. Keuntungan TIDAK pernah dimasukkan ke teks ini.
+    function buatTeks(tgl) {
+      const L = pengaturan(), bagian = [];
+      db.penitip.forEach(p => {
+        const r = ringkas(tgl, p);
+        if (!r.hadir || !r.baris.length) return;
+        const g = ['*' + p.nama + '*'];
+        r.baris.forEach(b => g.push('- ' + b.nama + ': ' + L.waNitip + ' ' + b.nitip + ', ' + L.waSisa + ' ' + (b.siap ? b.sisa : '?') + ', ' + L.waLaku + ' ' + b.laku + ' = ' + rp(b.uang)));
+        g.push(L.waTotal + ': ' + rp(r.total));
+        if (r.sebelum !== 0) {
+          g.push(labelSebelum(r.sebelum, r.tglSebelum) + ': ' + rp(Math.abs(r.sebelum)));
+          g.push(L.waHarus + ': ' + rp(r.harus));
+        }
+        if (r.fisik !== null) {
+          g.push(L.waDiterima + ': ' + rp(r.fisik));
+          if (r.saldo !== 0) g.push((r.saldo < 0 ? L.kurang : L.lebih) + ': ' + rp(Math.abs(r.saldo)));
+        }
+        bagian.push(g.join('\n'));
+      });
+      return L.judul + '\n' + namaTanggal(tgl) + '\n\n' + (bagian.join('\n\n') || '(belum ada data)');
+    }
+    function renderLaporan() {
+      $('teks-laporan').value = buatTeks(tglAktif);
+      const belum = [];
+      db.penitip.forEach(p => { const r = ringkas(tglAktif, p); if (r.baris.some(b => !b.siap)) belum.push(p.nama); });
+      $('peringatan').textContent = belum.length ? 'Sisa belum diisi untuk: ' + belum.join(', ') : '';
+      $('info-salin').textContent = '';
+    }
+    // TOMBOL: Salin Laporan
+    $('btn-salin').addEventListener('click', () => {
+      const area = $('teks-laporan');
+      area.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      if (!ok && navigator.clipboard) navigator.clipboard.writeText(area.value);
+      $('info-salin').textContent = 'Tersalin';
+    });
+    // TOMBOL: Bagikan ke WhatsApp
+    $('btn-wa').addEventListener('click', () => {
+      window.open('https://wa.me/?text=' + encodeURIComponent($('teks-laporan').value), '_blank');
+    });
+
+    // ===== HALAMAN LAPORAN: buat PDF =====
+    // Dipakai oleh: tombol Unduh PDF (tab Laporan) dan tombol Pratinjau PDF (tab Pengaturan).
+    // Tulisan, warna, rata, ketebalan, dan kolom diambil dari halaman Pengaturan. Keuntungan TIDAK dimasukkan.
+    function buatDocPDF() {
+      const L = pengaturan();
+      const LEBAR = batas(L.pdfLebar, 60, 210, 110), jarak = batas(L.pdfJarak, 0, 20, 5);
+      // kolom yang tampil: [kunci gaya, judul kolom]
+      const kol = [['kolKue', L.pdfKue], ['kolJumlah', L.pdfJumlah], ['kolSisa', L.pdfSisa], ['kolLaku', L.pdfLaku], ['kolHarga', L.pdfHarga], ['kolUang', L.pdfUang]]
+        .filter(([k]) => gaya(k).tampil !== false);
+      const n = kol.length, gk = kol.map(([k]) => gaya(k));
+      // fungsi menggambar seluruh isi laporan, mengembalikan posisi paling bawah
+      const gambar = doc => {
+        let y = 6;
+        // teks bebas di luar tabel (judul, tanggal, catatan)
+        const tulis = (isi, g) => {
+          if (!isi) return;
+          const ukuran = batas(g.ukuran, 5, 20, 9), x = g.rata === 'tengah' ? LEBAR / 2 : g.rata === 'kanan' ? LEBAR - 8 : 8;
+          const w = hexKeRgb(g.warna);
+          doc.setFont(L.pdfFamily, gayaSel(g).fontStyle); doc.setFontSize(ukuran); doc.setTextColor(w[0], w[1], w[2]);
+          y += ukuran * 0.36;
+          doc.text(String(isi), x, y, { align: RATA[g.rata] || 'left' });
+          y += ukuran * 0.1 + 1.5;
+        };
+        tulis(L.judul, gaya('judul'));
+        if (gaya('tanggal').tampil !== false) tulis(namaTanggal(tglAktif), gaya('tanggal'));
+        y += 2;
+        db.penitip.forEach(p => {
+          const r = ringkas(tglAktif, p);
+          if (!r.hadir || !r.baris.length) return;
+          // isi tabel: satu baris per kue, tiap sel memakai gaya kolomnya
+          const body = r.baris.map(b => {
+            const nilai = { kolKue: b.nama, kolJumlah: b.nitip, kolSisa: b.siap ? b.sisa : '?', kolLaku: b.laku, kolHarga: rp(b.setor), kolUang: rp(b.uang) };
+            return kol.map(([k], i) => ({ content: String(nilai[k]), styles: gayaSel(gk[i]) }));
+          });
+          // baris ringkasan di bawah tabel: tulisan di kiri (digabung), angka di kanan
+          const baris = (kunci, label, nilai) => {
+            const g = gaya(kunci);
+            if (g.tampil === false) return;
+            const sl = gayaSel(g), sn = Object.assign({}, sl, { halign: RATA[g.rataNilai] || 'right' });
+            body.push([{ content: label, colSpan: n - 1, styles: sl }, { content: nilai, styles: sn }]);
+          };
+          baris('rBrt', L.pdfBrt, rp(r.total));
+          if (r.sebelum !== 0) { baris(r.sebelum < 0 ? 'rTbh' : 'rPtg', labelSebelum(r.sebelum, r.tglSebelum), rp(Math.abs(r.sebelum))); baris('rTotal', L.pdfTotal, rp(r.harus)); }
+          if (r.fisik !== null) {
+            baris('rDiterima', L.pdfDiterima, rp(r.fisik));
+            if (r.saldo !== 0) baris(r.saldo < 0 ? 'rKurang' : 'rLebih', r.saldo < 0 ? L.kurang : L.lebih, rp(Math.abs(r.saldo)));
+          }
+          // kepala tabel: baris nama penitip + baris judul kolom (rata ikut kolom masing-masing)
+          const gh = gaya('kepala'), gn = gaya('nama');
+          const kepala = kol.map(([k, judul], i) => ({ content: String(judul), styles: Object.assign(gayaSel(gh), { halign: RATA[gk[i].rata] || 'left' }) }));
+          const lebarKol = {};
+          gk.forEach((g, i) => { const w = batas(g.lebar, 0, 150, 0); if (w > 0) lebarKol[i] = { cellWidth: w }; });
+          doc.autoTable({
+            startY: y, margin: { left: 8, right: 8, bottom: 0 }, theme: 'grid', columnStyles: lebarKol,
+            styles: { font: L.pdfFamily, cellPadding: batas(L.pdfPadding, 0, 5, 1.2), lineColor: hexKeRgb(L.pdfWarnaGaris), lineWidth: L.pdfTema === 'plain' ? 0 : batas(L.pdfTebalGaris, 0.05, 1, 0.1) },
+            head: [[{ content: gn.besar ? p.nama.toUpperCase() : p.nama, colSpan: n, styles: gayaSel(gn) }], kepala],
+            body
+          });
+          y = doc.lastAutoTable.finalY + jarak;
+        });
+        if (L.pdfCatatan) tulis(L.pdfCatatan, gaya('catatan'));
+        return y;
+      };
+      // 1) ukur tinggi isi pada halaman yang sangat tinggi, 2) buat PDF final dengan tinggi sesuai isi (satu halaman utuh, tidak terpotong)
+      const tinggi = Math.max(gambar(new window.jspdf.jsPDF({ unit: 'mm', format: [LEBAR, 5000] })) + 10, 60);
+      const doc = new window.jspdf.jsPDF({ unit: 'mm', format: [LEBAR, tinggi] });
+      gambar(doc);
+      return doc;
+    }
+    // TOMBOL: Unduh PDF
+    $('btn-pdf').addEventListener('click', () => {
+      if (!window.jspdf) { $('info-salin').textContent = 'Library PDF belum termuat. Periksa internet lalu muat ulang halaman.'; return; }
+      buatDocPDF().save('laporan-titipan-' + tglAktif + '.pdf');
+      $('info-salin').textContent = 'PDF diunduh.';
+    });
+    // TOMBOL: Pratinjau PDF (halaman Pengaturan). Membuat tautan untuk membuka PDF di tab baru
+    $('btn-pratinjau').addEventListener('click', () => {
+      if (!window.jspdf) { $('info-pengaturan').textContent = 'Library PDF belum termuat. Periksa internet lalu muat ulang halaman.'; return; }
+      const a = $('link-pratinjau');
+      a.href = URL.createObjectURL(buatDocPDF().output('blob'));
+      a.textContent = 'Buka pratinjau PDF (' + namaTanggal(tglAktif) + ')';
+      a.hidden = false;
+      $('info-pengaturan').textContent = 'Pratinjau memakai catatan pada tanggal yang dipilih di bagian atas. Ketuk tautan di atas untuk membukanya.';
+    });
+
+    // ===== HALAMAN KEUNTUNGAN: rekap per penitip, per kue, per hari =====
+    // Mengisi elemen: #hasil-untung. Kue tanpa harga jual dihitung untung Rp 0.
+    function tabel(judul, kepala, baris) {
+      return `<h3>${judul}</h3><div style="overflow-x:auto"><table class="tabel-lap">
+        <tr>${kepala.map(k => '<th>' + k + '</th>').join('')}</tr>
+        ${baris.map(b => '<tr>' + b.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('')}
+      </table></div>`;
+    }
+    function renderUntung() {
+      const dari = $('dari').value, sampai = $('sampai').value;
+      const perP = {}, perK = {}, perH = [];
+      let jual = 0, untung = 0;
+      Object.keys(db.hari).filter(t => t >= dari && t <= sampai).sort().forEach(t => {
+        let hUang = 0, hUntung = 0;
+        db.penitip.forEach(p => {
+          const r = ringkas(t, p);
+          r.baris.forEach(b => {
+            const a = perP[p.nama] = perP[p.nama] || { laku: 0, uang: 0, untung: 0 };
+            a.laku += b.laku; a.uang += b.uang; a.untung += b.untung;
+            const kk = p.nama + ' - ' + b.nama;
+            const x = perK[kk] = perK[kk] || { laku: 0, untung: 0 };
+            x.laku += b.laku; x.untung += b.untung;
+          });
+          hUang += r.total; hUntung += r.untung;
+        });
+        perH.push([namaTanggal(t), rp(hUang), rp(hUntung)]);
+        jual += hUang; untung += hUntung;
+      });
+      $('hasil-untung').innerHTML = `
+        <!-- KARTU TOTAL: penjualan (harga setor) dan keuntungan -->
+        <div class="total-untung">
+          <div>Total harga setor<b>${rp(jual)}</b></div>
+          <div>Total keuntungan<b>${rp(untung)}</b></div>
+        </div>
+        ${tabel('Per hari', ['Tanggal', 'Setor', 'Untung'], perH)}
+        ${tabel('Per penitip', ['Penitip', 'Laku', 'Setor', 'Untung'], Object.entries(perP).map(([n, a]) => [n, a.laku, rp(a.uang), rp(a.untung)]))}
+        ${tabel('Per kue (paling laku di atas)', ['Kue', 'Laku', 'Untung'], Object.entries(perK).sort((a, b) => b[1].laku - a[1].laku).map(([n, a]) => [n, a.laku, rp(a.untung)]))}`;
+    }
+    $('dari').addEventListener('change', renderUntung);
+    $('sampai').addEventListener('change', renderUntung);
+
+    // ===== HALAMAN DATA MASTER: ubah penitip, kue, harga =====
+    // Mengisi elemen: #daftar-master
+    function renderMaster() {
+      $('daftar-master').innerHTML = db.penitip.map(p => `
+        <!-- BLOK PENITIP: ${esc(p.nama)} -->
+        <div class="blok-penitip">
+          <!-- Baris nama penitip + tombol hapus -->
+          <div class="blok-nama">
+            <input class="kolom" data-aksi="p-nama" data-p="${p.id}" value="${esc(p.nama)}">
+            <button class="tombol merah" data-aksi="hapus-p" data-p="${p.id}">Hapus</button>
+          </div>
+          <!-- Judul kolom -->
+          <div class="baris-master"><small>Kue</small><small>Setor</small><small>Jual</small><span></span></div>
+          ${p.kue.map(k => `
+          <!-- Baris kue: ${esc(k.nama)} -->
+          <div class="baris-master">
+            <input class="kolom" data-aksi="k-nama" data-p="${p.id}" data-k="${k.id}" value="${esc(k.nama)}">
+            <input class="kolom" type="number" inputmode="numeric" data-aksi="k-setor" data-p="${p.id}" data-k="${k.id}" value="${k.setor}">
+            <input class="kolom" type="number" inputmode="numeric" data-aksi="k-jual" data-p="${p.id}" data-k="${k.id}" value="${k.jual || ''}">
+            <button class="tombol merah" data-aksi="hapus-k" data-p="${p.id}" data-k="${k.id}">x</button>
+          </div>`).join('')}
+          <!-- Tombol tambah kue -->
+          <button class="tombol abu" data-aksi="tambah-k" data-p="${p.id}">+ Tambah Kue</button>
+        </div>`).join('');
+    }
+    // Ketik di kolom master: simpan langsung tanpa menggambar ulang
+    $('daftar-master').addEventListener('input', ev => {
+      const t = ev.target, a = t.dataset.aksi, p = cariPenitip(t.dataset.p);
+      if (!p) return;
+      const k = p.kue.find(x => x.id === t.dataset.k);
+      if (a === 'p-nama') p.nama = t.value;
+      else if (k && a === 'k-nama') k.nama = t.value;
+      else if (k && a === 'k-setor') k.setor = Number(t.value) || 0;
+      else if (k && a === 'k-jual') k.jual = Number(t.value) || 0;
+      simpan();
+    });
+    // Tombol di master. Tombol hapus harus ditekan dua kali (tombol berubah jadi "Yakin?")
+    function dua(btn, aksi) {
+      if (btn.dataset.yakin) return aksi();
+      const awal = btn.textContent;
+      btn.dataset.yakin = 1; btn.textContent = 'Yakin?';
+      setTimeout(() => { delete btn.dataset.yakin; btn.textContent = awal; }, 3000);
+    }
+    $('daftar-master').addEventListener('click', ev => {
+      const t = ev.target, a = t.dataset.aksi, pid = t.dataset.p, p = cariPenitip(pid);
+      if (!a || !p) return;
+      if (a === 'tambah-k') { p.kue.push({ id: uid(), nama: 'Kue baru', setor: 1700, jual: 0 }); simpan(); renderMaster(); }
+      if (a === 'hapus-k') dua(t, () => { p.kue = p.kue.filter(k => k.id !== t.dataset.k); simpan(); renderMaster(); });
+      if (a === 'hapus-p') dua(t, () => { db.penitip = db.penitip.filter(x => x.id !== pid); simpan(); renderMaster(); });
+    });
+    // TOMBOL: Tambah Penitip
+    $('btn-tambah-penitip').addEventListener('click', () => {
+      db.penitip.push({ id: uid(), nama: 'Penitip baru', kue: [{ id: uid(), nama: 'Kue baru', setor: 1700, jual: 0 }] });
+      simpan(); renderMaster();
+    });
+
+    // ===== HALAMAN CADANGAN: unduh dan pulihkan per bagian =====
+    // Dipakai oleh: tombol Unduh / Pulihkan di #hal-cadangan. Format file: { jenis, data }.
+    const ADA_OBJEK = d => d && typeof d === 'object' && !Array.isArray(d);
+    const CAD = {
+      harian:     { nama: 'Catatan Harian',      ambil: () => db.hari,           pasang: d => { db.hari = d; },       cek: ADA_OBJEK },
+      pengaturan: { nama: 'Pengaturan Laporan',  ambil: () => db.pengaturan || {}, pasang: d => { db.pengaturan = d; }, cek: ADA_OBJEK },
+      master:     { nama: 'Data Master',         ambil: () => db.penitip,        pasang: d => { db.penitip = d; },    cek: d => Array.isArray(d) },
+      semua:      { nama: 'Semuanya',            ambil: () => db,                pasang: d => { db = d; },            cek: d => ADA_OBJEK(d) && Array.isArray(d.penitip) && ADA_OBJEK(d.hari) }
+    };
+    let jenisPulih = null, salinanSebelum = null;
+
+    // Susun isi file cadangan satu bagian
+    function isiCadangan(jenis) {
+      return JSON.stringify({ jenis, aplikasi: 'catatan-titipan-kue', dibuat: new Date().toISOString(), data: CAD[jenis].ambil() });
+    }
+    // Pulihkan satu bagian dari teks file; mengembalikan pesan hasil
+    function pulihkan(jenis, teks) {
+      let isi;
+      try { isi = JSON.parse(teks); } catch (e) { return 'File tidak valid.'; }
+      let jenisFile, data;
+      if (ADA_OBJEK(isi) && isi.jenis && 'data' in isi) { jenisFile = isi.jenis; data = isi.data; }
+      else if (ADA_OBJEK(isi) && Array.isArray(isi.penitip) && isi.hari) { jenisFile = 'semua'; data = isi; } // cadangan format lama = Semuanya
+      else return 'File tidak valid.';
+      if (jenisFile !== jenis) return 'File ini cadangan "' + (CAD[jenisFile] ? CAD[jenisFile].nama : 'tidak dikenal') + '", bukan "' + CAD[jenis].nama + '". Gunakan tombol Pulihkan di bagian yang sesuai.';
+      if (!CAD[jenis].cek(data)) return 'Isi file tidak sesuai untuk bagian ini.';
+      salinanSebelum = JSON.stringify(db); // simpan data sebelumnya agar bisa dibatalkan
+      CAD[jenis].pasang(data);
+      simpan(); tampilkanSemua();
+      $('btn-batal-pulih').hidden = false;
+      return CAD[jenis].nama + ' berhasil dipulihkan. Jika salah, tekan Batalkan Pemulihan Terakhir.';
+    }
+    // TOMBOL: Unduh dan Pulihkan di tiap blok
+    $('hal-cadangan').addEventListener('click', ev => {
+      const jenis = ev.target.dataset.cad;
+      if (!jenis) return;
+      if (ev.target.dataset.aksi === 'unduh') {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([isiCadangan(jenis)], { type: 'application/json' }));
+        a.download = 'cadangan-' + jenis + '-' + hariIni() + '.json';
+        a.click();
+        $('info-cadangan').textContent = 'Cadangan ' + CAD[jenis].nama + ' diunduh.';
+      } else { jenisPulih = jenis; $('file-impor').click(); }
+    });
+    // Setelah file dipilih
+    $('file-impor').addEventListener('change', ev => {
+      const berkas = ev.target.files[0];
+      if (!berkas || !jenisPulih) return;
+      const fr = new FileReader();
+      fr.onload = () => { $('info-cadangan').textContent = pulihkan(jenisPulih, fr.result); };
+      fr.readAsText(berkas);
+      ev.target.value = ''; // supaya file yang sama bisa dipilih lagi
+    });
+    // TOMBOL: Batalkan Pemulihan Terakhir
+    $('btn-batal-pulih').addEventListener('click', () => {
+      if (!salinanSebelum) return;
+      db = JSON.parse(salinanSebelum); salinanSebelum = null;
+      simpan(); tampilkanSemua();
+      $('btn-batal-pulih').hidden = true;
+      $('info-cadangan').textContent = 'Pemulihan dibatalkan. Data kembali seperti sebelumnya.';
+    });
+    // TOMBOL: Hapus Tanggal Ini (hanya satu tanggal yang dipilih; Data Master tetap aman)
+    $('btn-hapus-tgl').addEventListener('click', ev => {
+      const t = $('tgl-hapus').value;
+      if (!t) { $('info-cadangan').textContent = 'Pilih tanggal dulu.'; return; }
+      if (!db.hari[t]) { $('info-cadangan').textContent = 'Tidak ada catatan pada ' + namaTanggal(t) + '.'; return; }
+      dua(ev.target, () => {
+        delete db.hari[t]; simpan(); tampilkanSemua();
+        $('info-cadangan').textContent = 'Catatan ' + namaTanggal(t) + ' dihapus. Data Master tetap ada.';
+      });
+    });
+    // TOMBOL: Hapus Semua Tanggal (semua catatan harian; Data Master tetap aman)
+    $('btn-hapus-semua').addEventListener('click', ev => dua(ev.target, () => {
+      db.hari = {}; simpan(); tampilkanSemua();
+      $('info-cadangan').textContent = 'Semua catatan harian dihapus. Data Master tetap ada.';
+    }));
+    // Teks daftar tanggal yang punya catatan, di bawah judul "Hapus Catatan Harian"
+    function isiDaftarTgl() {
+      const ada = Object.keys(db.hari).filter(t => Object.values(db.hari[t]).some(e => e.hadir)).sort();
+      $('daftar-tgl-hapus').textContent = ada.length
+        ? 'Tanggal yang ada catatan: ' + ada.map(t => new Date(t + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })).join(', ')
+        : 'Belum ada catatan harian.';
+    }
+
+    // ===== HALAMAN GANTUNGAN: saldo kurang / lebih yang belum selesai =====
+    // Mengisi elemen: #hasil-gantungan. Hanya penitip yang uang fisiknya pernah diisi yang dihitung.
+    // Total uang kue satu hari tanpa saldo (sama dengan hitungan di ringkas)
+    function totalMurni(e) {
+      let total = 0;
+      Object.values(e.kue || {}).forEach(c => { if (c && c.nitip > 0 && c.sisa !== '' && c.sisa !== undefined) total += (c.nitip - c.sisa) * c.setor; });
+      return total;
+    }
+    // Daftar penitip yang saldo terakhirnya bukan nol, beserta rantai tanggal sejak saldo itu mulai muncul
+    function hitungGantungan() {
+      const hasil = [];
+      db.penitip.forEach(p => {
+        const tgl = Object.keys(db.hari).filter(t => { const e = db.hari[t][p.id]; return e && e.hadir && e.fisik !== '' && e.fisik != null; }).sort();
+        let s = 0; const urut = [];
+        tgl.forEach(t => { const e = db.hari[t][p.id]; s = e.fisik - (totalMurni(e) - s); urut.push({ tgl: t, saldo: s }); });
+        if (!urut.length || urut[urut.length - 1].saldo === 0) return; // belum pernah nitip, atau sudah Pas
+        const rantai = [];
+        for (let i = urut.length - 1; i >= 0 && urut[i].saldo !== 0; i--) rantai.unshift(urut[i]);
+        hasil.push({ nama: p.nama, saldo: urut[urut.length - 1].saldo, rantai });
+      });
+      return hasil;
+    }
+    function renderGantungan() {
+      const batasHari = Number($('batas-hari').value) || 7, hariIniTeks = hariIni();
+      const lalu = t => Math.round((new Date(hariIniTeks + 'T00:00:00') - new Date(t + 'T00:00:00')) / 86400000);
+      const daftar = hitungGantungan().sort((a, b) => a.rantai[a.rantai.length - 1].tgl.localeCompare(b.rantai[b.rantai.length - 1].tgl));
+      let kurang = 0, lebih = 0;
+      daftar.forEach(d => { if (d.saldo < 0) kurang -= d.saldo; else lebih += d.saldo; });
+      const kartu = d => {
+        const akhir = d.rantai[d.rantai.length - 1], hari = lalu(akhir.tgl);
+        return `<!-- KARTU GANTUNGAN: ${esc(d.nama)} -->
+        <div class="kartu-gantung">
+          <div class="judul"><span>${esc(d.nama)}</span><span class="${kelasSaldo(d.saldo)}">${labelSaldo(d.saldo)}</span></div>
+          <small>Terakhir nitip: ${labelTgl(akhir.tgl)} <span class="${hari >= batasHari ? 'lama' : ''}">(${hari} hari lalu)</span></small>
+          <small>Saldo mulai muncul: ${labelTgl(d.rantai[0].tgl)}</small>
+          <table class="tabel-lap"><tr><th>Tanggal</th><th>Saldo setelah hari itu</th></tr>
+            ${d.rantai.map(r => `<tr><td>${labelTgl(r.tgl)}</td><td class="${kelasSaldo(r.saldo)}">${labelSaldo(r.saldo)}</td></tr>`).join('')}
+          </table>
+        </div>`;
+      };
+      $('hasil-gantungan').innerHTML = `
+        <!-- KOTAK TOTAL: seluruh kurang dan lebih yang menggantung -->
+        <div class="total-untung">
+          <div>Total kurang<b class="minus">${rp(kurang)}</b></div>
+          <div>Total lebih<b class="plus">${rp(lebih)}</b></div>
+        </div>
+        ${daftar.length ? daftar.map(kartu).join('') : '<p>Tidak ada saldo yang menggantung. Semua penitip Pas.</p>'}`;
+    }
+    $('batas-hari').addEventListener('input', renderGantungan);
+
+    // ===== SINKRON GOOGLE SHEET =====
+    // Dipakai oleh: kotak "Simpan ke Google Sheet" di tab Cadangan dan teks #status-sheet di header.
+    // Alamat dan kunci disimpan di browser tiap perangkat (tidak ada di kode ini).
+    const KUNCI_CFG = 'pengaturanSheet';
+    // versiSheet = nomor versi data di Sheet yang diketahui perangkat ini
+    // dasar      = salinan data saat terakhir sama dengan Sheet (dipakai untuk menggabungkan perubahan)
+    // kotor      = true jika ada perubahan di perangkat ini yang belum sampai ke Sheet
+    let cfg = null, versiSheet = null, dasar = null, kotor = false, timerDorong = null, adaTunda = false, sedangDorong = false, tanpaVersi = false, terakhirKetik = 0;
+    try { cfg = JSON.parse(localStorage.getItem(KUNCI_CFG)); } catch (e) {}
+
+    function status(teks, galat) {
+      $('status-sheet').textContent = teks;
+      $('status-sheet').style.color = galat ? '#fecaca' : '#d1fae5';
+    }
+    // Kirim permintaan ke Apps Script
+    async function panggil(aksi, tambahan) {
+      const res = await fetch(cfg.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ kunci: cfg.kunci, aksi, ...tambahan })
+      });
+      return res.json();
+    }
+    const jam = () => new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const simpanLokal = () => { try { localStorage.setItem(KUNCI, JSON.stringify(db)); } catch (e) {} };
+    // Ganti data di perangkat dengan data dari Sheet
+    function terapkan(data, versi) {
+      db = data; versiSheet = versi; dasar = JSON.stringify(data); kotor = false;
+      simpanLokal(); tampilkanSemua();
+    }
+    // Gabungkan perubahan di perangkat ini (lokal) dengan data terbaru di Sheet (server).
+    // Master dan pengaturan: dipakai milik perangkat ini jika memang diubah di sini.
+    // Catatan harian: dibandingkan per tanggal dan per penitip, jadi perubahan dua perangkat di bagian berbeda sama-sama selamat.
+    function gabung(basis, lokal, server) {
+      const D = JSON.parse(basis), hasil = JSON.parse(JSON.stringify(server));
+      const sama = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      ['penitip', 'pengaturan'].forEach(k => { if (!sama(lokal[k], D[k])) hasil[k] = lokal[k]; });
+      const tgl = new Set([...Object.keys(D.hari || {}), ...Object.keys(lokal.hari || {})]);
+      tgl.forEach(t => {
+        const pid = new Set([...Object.keys((D.hari || {})[t] || {}), ...Object.keys((lokal.hari || {})[t] || {})]);
+        pid.forEach(p => {
+          const awal = ((D.hari || {})[t] || {})[p], kini = ((lokal.hari || {})[t] || {})[p];
+          if (sama(awal, kini)) return; // tidak diubah di perangkat ini
+          hasil.hari = hasil.hari || {}; hasil.hari[t] = hasil.hari[t] || {};
+          if (kini === undefined) delete hasil.hari[t][p]; else hasil.hari[t][p] = kini;
+          if (!Object.keys(hasil.hari[t]).length) delete hasil.hari[t];
+        });
+      });
+      return hasil;
+    }
+    // Baca data dari Sheet (saat halaman dibuka dan saat menekan Hubungkan)
+    async function tarik() {
+      if (!cfg) return;
+      if (kotor) { await dorongSekarang(); return; } // ada perubahan yang belum terkirim: kirim dulu, jangan ditimpa
+      status('Sheet: membaca...');
+      try {
+        const r = await panggil('baca');
+        if (!r.ok) return status('Sheet: ' + r.pesan, true);
+        if (r.data) { terapkan(r.data, r.versi); status('Sheet: terhubung, data dimuat ' + jam()); }
+        else { versiSheet = r.versi; dasar = null; kotor = true; await dorongSekarang(); } // Sheet masih kosong: kirim data perangkat ini
+      } catch (e) { status('Sheet: gagal terhubung. Data tetap tersimpan di perangkat ini.', true); }
+    }
+    // Cek diam-diam apakah perangkat lain sudah mengubah data. Dipanggil berkala, saat kembali ke halaman, dan saat internet pulih.
+    async function cekBaru() {
+      if (!cfg || document.hidden || sedangDorong || kotor || adaTunda) return;
+      if (Date.now() - terakhirKetik < 5000) return; // jangan mengganggu saat sedang mengetik
+      try {
+        let versi, data;
+        if (!tanpaVersi) {
+          const r = await panggil('versi');
+          if (r.ok && typeof r.versi === 'number') versi = r.versi;
+          else if (r.pesan === 'Aksi tidak dikenal') tanpaVersi = true; // Code.gs lama: pakai cara baca penuh
+        }
+        if (versi === undefined) { const r = await panggil('baca'); if (!r.ok) return; versi = r.versi; data = r.data; }
+        if (versi === versiSheet || kotor || sedangDorong || adaTunda) return;
+        if (!data) { const r = await panggil('baca'); if (!r.ok) return; versi = r.versi; data = r.data; }
+        if (data) { terapkan(data, versi); status('Sheet: diperbarui dari perangkat lain ' + jam()); }
+      } catch (e) { /* diam: akan dicoba lagi */ }
+    }
+    function segarkan() { if (!cfg) return; if (versiSheet === null) tarik(); else cekBaru(); }
+    // Tunggu 1,5 detik setelah ketikan terakhir, baru kirim ke Sheet
+    function jadwalDorong() {
+      kotor = true;
+      if (!cfg || versiSheet === null) return;
+      adaTunda = true; clearTimeout(timerDorong);
+      status('Sheet: menyimpan...');
+      timerDorong = setTimeout(dorongSekarang, 1500);
+    }
+    async function dorongSekarang(percobaan) {
+      if (!cfg) return;
+      if (sedangDorong) { timerDorong = setTimeout(dorongSekarang, 1000); return; }
+      adaTunda = false; sedangDorong = true;
+      const kirim = JSON.stringify(db);
+      try {
+        const r = await panggil('tulis', { versi: versiSheet, data: db });
+        if (r.ok) {
+          versiSheet = r.versi; dasar = kirim;
+          kotor = JSON.stringify(db) !== kirim; // masih ada ketikan baru selama pengiriman?
+          if (kotor) jadwalDorong(); else status('Sheet: tersimpan ' + jam());
+        } else if (r.konflik) {
+          // perangkat lain menulis lebih dulu: gabungkan perubahan perangkat ini dengan data terbaru, lalu kirim lagi
+          db = dasar ? gabung(dasar, db, r.data) : r.data;
+          versiSheet = r.versi; if (!dasar) { dasar = JSON.stringify(r.data); kotor = false; }
+          simpanLokal(); tampilkanSemua();
+          status('Sheet: digabung dengan perubahan dari perangkat lain ' + jam());
+          sedangDorong = false;
+          if (kotor && (percobaan || 0) < 3) return dorongSekarang((percobaan || 0) + 1);
+        } else status('Sheet: ' + r.pesan, true);
+      } catch (e) {
+        status('Sheet: gagal menyimpan, akan dicoba lagi. Perubahan tetap aman di perangkat ini.', true);
+        clearTimeout(timerDorong); timerDorong = setTimeout(dorongSekarang, 10000);
+      }
+      sedangDorong = false;
+    }
+    // TOMBOL: Hubungkan
+    $('btn-hubung').addEventListener('click', () => {
+      cfg = { url: $('sheet-url').value.trim(), kunci: $('sheet-kunci').value };
+      try { localStorage.setItem(KUNCI_CFG, JSON.stringify(cfg)); } catch (e) {}
+      versiSheet = null; dasar = null; kotor = false; tarik();
+    });
+    // TOMBOL: Mata. Menampilkan kunci; otomatis disembunyikan lagi setelah 8 detik
+    // Ikon: MATA_BUKA = kunci tersembunyi (ketuk untuk melihat), MATA_TUTUP = kunci terlihat (ketuk untuk menyembunyikan)
+    const MATA_BUKA = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const MATA_TUTUP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    let timerMata = null;
+    $('btn-mata').addEventListener('click', () => {
+      const k = $('sheet-kunci'), tampil = k.type === 'password';
+      k.type = tampil ? 'text' : 'password';
+      $('btn-mata').innerHTML = tampil ? MATA_TUTUP : MATA_BUKA;
+      clearTimeout(timerMata);
+      if (tampil) timerMata = setTimeout(() => { k.type = 'password'; $('btn-mata').innerHTML = MATA_BUKA; }, 8000);
+    });
+    // TOMBOL: Putuskan
+    $('btn-putus').addEventListener('click', () => {
+      cfg = null; versiSheet = null;
+      try { localStorage.removeItem(KUNCI_CFG); } catch (e) {}
+      status('');
+    });
+    // Cek data terbaru dari Sheet: saat kembali membuka halaman, saat jendela aktif lagi, saat internet pulih, dan tiap 20 detik
+    document.addEventListener('input', () => { terakhirKetik = Date.now(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) segarkan(); });
+    window.addEventListener('focus', segarkan);
+    window.addEventListener('online', segarkan);
+    function mulaiSinkron() {
+      if (cfg) { $('sheet-url').value = cfg.url || ''; $('sheet-kunci').value = cfg.kunci || ''; tarik(); }
+      setInterval(segarkan, 20000);
+    }
+
+    // ===== NAVIGASI TAB DAN TANGGAL =====
+    // Dipakai oleh: #menu dan #tanggal
+    function tampilkanHalaman(nama) {
+      document.querySelectorAll('.halaman').forEach(h => h.hidden = (h.id !== 'hal-' + nama));
+      document.querySelectorAll('#menu button').forEach(b => b.classList.toggle('aktif', b.dataset.hal === nama));
+      if (nama === 'input') renderInput();
+      if (nama === 'laporan') renderLaporan();
+      if (nama === 'untung') renderUntung();
+      if (nama === 'master') renderMaster();
+      if (nama === 'cadangan') isiDaftarTgl();
+      if (nama === 'gantungan') renderGantungan();
+      if (nama === 'pengaturan') renderPengaturan();
+    }
+    function tampilkanSemua() {
+      const aktif = document.querySelector('#menu button.aktif').dataset.hal;
+      tampilkanHalaman(aktif);
+    }
+    $('menu').addEventListener('click', ev => { if (ev.target.dataset.hal) tampilkanHalaman(ev.target.dataset.hal); });
+    $('tanggal').addEventListener('change', ev => { tglAktif = ev.target.value || hariIni(); tampilkanSemua(); });
+
+    // ===== MULAI =====
+    muat();
+    $('tanggal').value = tglAktif;
+    $('dari').value = tglAktif.slice(0, 8) + '01';
+    $('sampai').value = tglAktif;
+    tampilkanHalaman('input');
+    $('tgl-hapus').value = tglAktif;
+    mulaiSinkron();
+
+  </script>
+</body>
+</html>
