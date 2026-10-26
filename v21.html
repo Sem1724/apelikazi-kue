@@ -937,7 +937,7 @@
     // TOMBOL: Unduh PDF
     $('btn-pdf').addEventListener('click', () => {
       if (!window.jspdf) { $('info-salin').textContent = 'Library PDF belum termuat. Periksa internet lalu muat ulang halaman.'; return; }
-      buatDocPDF().save('Kue2' + tglAktif + '.pdf');
+      buatDocPDF().save('Kue2 - ' + tglAktif + '.pdf');
       $('info-salin').textContent = 'PDF diunduh.';
     });
     // TOMBOL: Pratinjau PDF (halaman Pengaturan). Membuat tautan untuk membuka PDF di tab baru
